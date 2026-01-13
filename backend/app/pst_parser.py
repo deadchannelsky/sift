@@ -58,17 +58,19 @@ class PSTParser:
 
         try:
             with TaskTimer(f"PST parsing: {Path(pst_path).name}"):
-                # Open PST archive using libratom
+                # Open PST archive using libratom (returns pypff objects)
                 archive = PffArchive(pst_path)
 
                 # Dictionary to track conversations: topic -> list of messages
                 conversations = {}
 
-                # Extract messages from all folders (folders and messages are methods in libratom)
+                # Extract messages from all folders (libratom returns pypff folder objects)
                 for folder in archive.folders():
                     try:
-                        for message in folder.messages():
+                        # Iterate through messages in this folder using pypff API
+                        for msg_idx in range(folder.number_of_sub_messages):
                             try:
+                                message = folder.get_sub_message(msg_idx)
                                 msg_data = self._extract_message(message)
 
                                 if msg_data and self._is_in_date_range(
@@ -85,6 +87,14 @@ class PSTParser:
                             except Exception as e:
                                 logger.warning(f"Error extracting message: {e}")
                                 self.error_count += 1
+
+                        # Recurse into subfolders
+                        for subfolder_idx in range(folder.number_of_sub_folders):
+                            try:
+                                subfolder = folder.get_sub_folder(subfolder_idx)
+                                self._process_folder(subfolder, conversations, date_start_dt, date_end_dt)
+                            except Exception as e:
+                                logger.warning(f"Error accessing subfolder: {e}")
 
                     except Exception as e:
                         logger.warning(f"Error processing folder: {e}")
@@ -114,62 +124,98 @@ class PSTParser:
         return self.message_count, self.conversation_count, self.error_count
 
 
-    def _extract_message(self, message) -> Optional[dict]:
-        """Extract relevant fields from a libratom message"""
+    def _process_folder(self, folder, conversations: dict, date_start, date_end, depth=0):
+        """Recursively process folder and subfolders"""
+        if depth > 20:  # Prevent infinite recursion
+            return
+
         try:
-            # Basic fields - libratom provides these directly
-            subject = message.subject or ""
-            sender_email = message.sender_email or ""
-            sender_name = message.sender_name or ""
+            # Process messages in this folder
+            for msg_idx in range(folder.number_of_sub_messages):
+                try:
+                    message = folder.get_sub_message(msg_idx)
+                    msg_data = self._extract_message(message)
+
+                    if msg_data and self._is_in_date_range(msg_data["delivery_date"], date_start, date_end):
+                        topic = msg_data["conversation_topic"]
+                        if topic not in conversations:
+                            conversations[topic] = []
+                        conversations[topic].append(msg_data)
+
+                except Exception as e:
+                    logger.warning(f"Error extracting message: {e}")
+                    self.error_count += 1
+
+            # Recurse into subfolders
+            for subfolder_idx in range(folder.number_of_sub_folders):
+                try:
+                    subfolder = folder.get_sub_folder(subfolder_idx)
+                    self._process_folder(subfolder, conversations, date_start, date_end, depth + 1)
+                except Exception as e:
+                    logger.warning(f"Error accessing subfolder: {e}")
+
+        except Exception as e:
+            logger.warning(f"Error processing folder: {e}")
+
+    def _extract_message(self, message) -> Optional[dict]:
+        """Extract relevant fields from a pypff message object"""
+        try:
+            # Basic fields - pypff API
+            subject = message.subject if hasattr(message, 'subject') else ""
+            sender_email = message.sender_email_address if hasattr(message, 'sender_email_address') else ""
+            sender_name = message.sender_name if hasattr(message, 'sender_name') else ""
 
             # Recipients (comma-separated)
             recipients = []
-            if hasattr(message, 'recipients') and message.recipients:
+            if hasattr(message, 'recipients'):
                 try:
                     for recipient in message.recipients:
-                        if hasattr(recipient, 'email'):
-                            recipients.append(recipient.email)
-                        elif isinstance(recipient, str):
-                            recipients.append(recipient)
+                        if hasattr(recipient, 'email_address'):
+                            recipients.append(recipient.email_address)
+                        else:
+                            recipients.append(str(recipient))
                 except:
                     pass
             recipients_str = ",".join(recipients)
 
             # CC (comma-separated)
             cc = []
-            if hasattr(message, 'cc_recipients') and message.cc_recipients:
+            if hasattr(message, 'cc_recipients'):
                 try:
                     for cc_recipient in message.cc_recipients:
-                        if hasattr(cc_recipient, 'email'):
-                            cc.append(cc_recipient.email)
-                        elif isinstance(cc_recipient, str):
-                            cc.append(cc_recipient)
+                        if hasattr(cc_recipient, 'email_address'):
+                            cc.append(cc_recipient.email_address)
+                        else:
+                            cc.append(str(cc_recipient))
                 except:
                     pass
             cc_str = ",".join(cc)
 
             # Delivery date
-            delivery_date = message.client_submit_time or None
+            delivery_date = message.client_submit_time if hasattr(message, 'client_submit_time') else None
 
-            # Body (libratom provides both plain text and HTML)
-            body = message.body or ""
+            # Body (pypff has plain_text_body and html_body)
+            body = ""
+            if hasattr(message, 'plain_text_body'):
+                body = message.plain_text_body or ""
             if not body and hasattr(message, 'html_body'):
                 body = message.html_body or ""
             body_snippet = (body[:500] if body else "").replace("\n", " ")
 
             # Message class
-            message_class = getattr(message, 'message_class', "IPM.Note") or "IPM.Note"
+            message_class = message.message_class if hasattr(message, 'message_class') else "IPM.Note"
 
             # Attachments
             has_ics = False
             attachment_count = 0
-            if hasattr(message, 'attachments') and message.attachments:
+            if hasattr(message, 'attachments'):
                 try:
-                    attachment_count = len(message.attachments)
-                    for att in message.attachments:
-                        filename = att.filename if hasattr(att, 'filename') else ""
-                        if filename and filename.lower().endswith('.ics'):
-                            has_ics = True
+                    attachment_count = len(message.attachments) if message.attachments else 0
+                    if message.attachments:
+                        for att in message.attachments:
+                            filename = att.filename if hasattr(att, 'filename') else ""
+                            if filename and filename.lower().endswith('.ics'):
+                                has_ics = True
                 except:
                     pass
 
