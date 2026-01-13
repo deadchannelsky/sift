@@ -64,10 +64,10 @@ class PSTParser:
                 # Dictionary to track conversations: topic -> list of messages
                 conversations = {}
 
-                # Extract messages from all folders
-                for folder in archive.folders:
+                # Extract messages from all folders (folders and messages are methods in libratom)
+                for folder in archive.folders():
                     try:
-                        for message in folder.messages:
+                        for message in folder.messages():
                             try:
                                 msg_data = self._extract_message(message)
 
