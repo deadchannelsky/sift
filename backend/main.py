@@ -2,7 +2,7 @@
 Sift Backend - FastAPI application
 Entry point for PST parsing and enrichment pipeline
 """
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
@@ -42,6 +42,7 @@ async def startup_event():
 
 # Request/Response models
 class ParseRequest(BaseModel):
+    pst_filename: str  # Filename in /opt/sift/data/ (e.g., "sample.pst")
     date_start: str = "2025-10-01"
     date_end: str = "2025-12-31"
     min_conversation_messages: int = 3
@@ -81,42 +82,37 @@ async def root():
 
 @app.post("/parse")
 async def parse_pst(
-    file: UploadFile = File(...),
-    request: ParseRequest = None,
+    request: ParseRequest,
     background_tasks: BackgroundTasks = None
 ):
     """
-    Upload PST file and start parsing job
+    Start parsing a PST file already on the server
 
     Args:
-        file: PST file to parse
-        request: JSON body with date_start, date_end, min_conversation_messages
+        request: JSON body with:
+            - pst_filename: Filename in /opt/sift/data/ (e.g., "sample.pst")
+            - date_start: Start date (YYYY-MM-DD)
+            - date_end: End date (YYYY-MM-DD)
+            - min_conversation_messages: Minimum messages in thread
 
     Returns:
         {
             "job_id": "abc123",
             "status": "queued",
-            "message": "PST file uploaded, parsing started"
+            "message": "Parsing started"
         }
     """
-    if request is None:
-        request = ParseRequest()
-
-    # Validate file
-    if not file.filename.endswith(".pst"):
-        raise HTTPException(status_code=400, detail="File must be .pst format")
-
     try:
-        # Save uploaded file
-        ensure_data_dir()
-        pst_dir = Path("data")
-        pst_path = pst_dir / file.filename
+        # Validate PST file exists
+        pst_path = Path("/opt/sift/data") / request.pst_filename
 
-        with open(pst_path, "wb") as f:
-            contents = await file.read()
-            f.write(contents)
+        if not pst_path.exists():
+            raise HTTPException(status_code=404, detail=f"PST file not found: {pst_path}")
 
-        logger.info(f"PST file uploaded: {pst_path} ({len(contents)} bytes)")
+        if not str(pst_path).endswith(".pst"):
+            raise HTTPException(status_code=400, detail="File must be .pst format")
+
+        logger.info(f"Starting parse job for: {pst_path}")
 
         # Create job record
         job_id = str(uuid.uuid4())[:8]
@@ -148,12 +144,14 @@ async def parse_pst(
         return {
             "job_id": job_id,
             "status": "queued",
-            "message": f"PST file uploaded: {file.filename}. Parsing started."
+            "message": f"Parsing started for: {request.pst_filename}"
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error uploading PST: {e}")
-        raise HTTPException(status_code=500, detail=f"Error uploading file: {str(e)}")
+        logger.error(f"Error starting parse job: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 
 @app.get("/status/{job_id}")
