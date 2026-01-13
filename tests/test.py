@@ -24,7 +24,7 @@ def test_health_check():
         return False
 
 
-def test_parse_pst(pst_filename='sample.pst', date_start='2025-10-01', date_end='2025-12-31'):
+def test_parse_pst(pst_filename='test.pst', date_start='2025-10-01', date_end='2025-12-31'):
     """Test PST parsing endpoint"""
     print("\n=== 2. Parse PST File ===")
     try:
@@ -41,13 +41,21 @@ def test_parse_pst(pst_filename='sample.pst', date_start='2025-10-01', date_end=
         response = r.json()
         print(f"Response: {json.dumps(response, indent=2)}")
 
-        assert r.status_code == 200
+        if r.status_code == 422:
+            print("⚠️  Backend expecting old format. Did you pull latest changes and restart?")
+            print("   Run on server: cd /opt/sift && git pull origin main && cd backend && python main.py")
+            return None
+
+        assert r.status_code == 200, f"Expected 200, got {r.status_code}"
         assert 'job_id' in response
         assert response['status'] == 'queued'
 
         job_id = response['job_id']
         print(f"✅ PASS: Job created with ID: {job_id}")
         return job_id
+    except AssertionError as e:
+        print(f"❌ FAIL: {e}")
+        return None
     except Exception as e:
         print(f"❌ FAIL: {e}")
         return None
@@ -154,7 +162,7 @@ def main():
     print("Prerequisites:")
     print("  1. SSH tunnel active: ssh -L 5000:localhost:5000 user@server")
     print("  2. Backend running: python main.py")
-    print("  3. PST file on server: /opt/sift/data/sample.pst")
+    print("  3. PST file on server: /opt/sift/data/test.pst")
     print("\n" + "=" * 60)
 
     # Run tests
@@ -172,6 +180,9 @@ def main():
             results['results'] = test_results(job_id)
             job_id_display = job_id
         else:
+            results['status'] = False
+            results['monitor'] = False
+            results['results'] = False
             job_id_display = "N/A"
     else:
         print("\n⚠️  Skipping remaining tests (backend not responding)")
