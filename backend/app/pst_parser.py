@@ -1,7 +1,7 @@
 """
-PST file parser - Extract messages and store to SQLite
+PST file parser - Extract messages and store to SQLite using libratom
 """
-import pypff
+from libratom.lib.pff import PffArchive
 import hashlib
 from datetime import datetime
 from pathlib import Path
@@ -58,22 +58,36 @@ class PSTParser:
 
         try:
             with TaskTimer(f"PST parsing: {Path(pst_path).name}"):
-                pst_file = pypff.file()
-                pst_file.open(pst_path)
-
-                # Get root folder
-                root_folder = pst_file.root_folder
+                # Open PST archive using libratom
+                archive = PffArchive(pst_path)
 
                 # Dictionary to track conversations: topic -> list of messages
                 conversations = {}
 
-                # Walk folder tree and extract messages
-                self._walk_folder(
-                    root_folder,
-                    conversations,
-                    date_start_dt,
-                    date_end_dt
-                )
+                # Extract messages from all folders
+                for folder in archive.folders:
+                    try:
+                        for message in folder.messages:
+                            try:
+                                msg_data = self._extract_message(message)
+
+                                if msg_data and self._is_in_date_range(
+                                    msg_data["delivery_date"],
+                                    date_start_dt,
+                                    date_end_dt
+                                ):
+                                    # Group by conversation topic
+                                    topic = msg_data["conversation_topic"]
+                                    if topic not in conversations:
+                                        conversations[topic] = []
+                                    conversations[topic].append(msg_data)
+
+                            except Exception as e:
+                                logger.warning(f"Error extracting message: {e}")
+                                self.error_count += 1
+
+                    except Exception as e:
+                        logger.warning(f"Error processing folder: {e}")
 
                 logger.info(f"Found {len(conversations)} conversations")
 
@@ -88,8 +102,6 @@ class PSTParser:
                     [c for c in self.db_session.query(Conversation).all()]
                 )
 
-                pst_file.close()
-
         except Exception as e:
             logger.error(f"Error parsing PST: {e}")
             raise
@@ -101,87 +113,62 @@ class PSTParser:
 
         return self.message_count, self.conversation_count, self.error_count
 
-    def _walk_folder(self, folder, conversations, date_start, date_end, depth=0):
-        """Recursively walk PST folder tree"""
-        if depth > 20:  # Prevent infinite recursion
-            return
-
-        try:
-            # Process messages in this folder
-            for message_idx in range(folder.number_of_sub_messages):
-                try:
-                    message = folder.get_sub_message(message_idx)
-                    msg_data = self._extract_message(message)
-
-                    if msg_data and self._is_in_date_range(msg_data["delivery_date"], date_start, date_end):
-                        # Group by conversation topic
-                        topic = msg_data["conversation_topic"]
-                        if topic not in conversations:
-                            conversations[topic] = []
-                        conversations[topic].append(msg_data)
-
-                except Exception as e:
-                    logger.warning(f"Error extracting message: {e}")
-                    self.error_count += 1
-
-            # Recurse into subfolders
-            for subfolder_idx in range(folder.number_of_sub_folders):
-                try:
-                    subfolder = folder.get_sub_folder(subfolder_idx)
-                    self._walk_folder(subfolder, conversations, date_start, date_end, depth + 1)
-                except Exception as e:
-                    logger.warning(f"Error accessing subfolder: {e}")
-
-        except Exception as e:
-            logger.warning(f"Error walking folder: {e}")
 
     def _extract_message(self, message) -> Optional[dict]:
-        """Extract relevant fields from a pypff message"""
+        """Extract relevant fields from a libratom message"""
         try:
-            # Basic fields
-            subject = message.subject if hasattr(message, 'subject') else ""
-            sender_email = message.sender_email_address if hasattr(message, 'sender_email_address') else ""
-            sender_name = message.sender_name if hasattr(message, 'sender_name') else ""
+            # Basic fields - libratom provides these directly
+            subject = message.subject or ""
+            sender_email = message.sender_email or ""
+            sender_name = message.sender_name or ""
 
             # Recipients (comma-separated)
             recipients = []
-            if hasattr(message, 'recipients'):
+            if hasattr(message, 'recipients') and message.recipients:
                 try:
                     for recipient in message.recipients:
-                        recipients.append(recipient.email_address)
+                        if hasattr(recipient, 'email'):
+                            recipients.append(recipient.email)
+                        elif isinstance(recipient, str):
+                            recipients.append(recipient)
                 except:
                     pass
             recipients_str = ",".join(recipients)
 
             # CC (comma-separated)
             cc = []
-            if hasattr(message, 'cc_recipients'):
+            if hasattr(message, 'cc_recipients') and message.cc_recipients:
                 try:
                     for cc_recipient in message.cc_recipients:
-                        cc.append(cc_recipient.email_address)
+                        if hasattr(cc_recipient, 'email'):
+                            cc.append(cc_recipient.email)
+                        elif isinstance(cc_recipient, str):
+                            cc.append(cc_recipient)
                 except:
                     pass
             cc_str = ",".join(cc)
 
             # Delivery date
-            delivery_date = message.client_submit_time if hasattr(message, 'client_submit_time') else None
+            delivery_date = message.client_submit_time or None
 
-            # Body
-            body = message.plain_text_body if hasattr(message, 'plain_text_body') else ""
+            # Body (libratom provides both plain text and HTML)
+            body = message.body or ""
+            if not body and hasattr(message, 'html_body'):
+                body = message.html_body or ""
             body_snippet = (body[:500] if body else "").replace("\n", " ")
 
             # Message class
-            message_class = message.message_class if hasattr(message, 'message_class') else "IPM.Note"
+            message_class = getattr(message, 'message_class', "IPM.Note") or "IPM.Note"
 
             # Attachments
             has_ics = False
             attachment_count = 0
-            if hasattr(message, 'attachments'):
+            if hasattr(message, 'attachments') and message.attachments:
                 try:
-                    attachment_count = message.number_of_attachments if hasattr(message, 'number_of_attachments') else 0
+                    attachment_count = len(message.attachments)
                     for att in message.attachments:
                         filename = att.filename if hasattr(att, 'filename') else ""
-                        if filename.lower().endswith('.ics'):
+                        if filename and filename.lower().endswith('.ics'):
                             has_ics = True
                 except:
                     pass
