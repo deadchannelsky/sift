@@ -28,10 +28,12 @@ Linux Server:
 
 ```bash
 ssh user@server
-cd /opt  # or preferred deployment directory
-git clone https://github.com/yourusername/sift.git
+cd /path/to/install/location  # Any location on the server
+git clone https://github.com/yourusername/sift.git sift
 cd sift/backend
 ```
+
+**Note**: All paths are relative to the installation directory. PST files should be placed in `./data/` subdirectory.
 
 ### 2. Install Python Dependencies
 
@@ -41,21 +43,23 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 3. Create Data Directory
+### 3. Create Data Directory and Copy PST Files
 
 ```bash
 mkdir -p data/outputs
+
+# Copy your PST files here
+cp /path/to/your/emails.pst data/
 ```
 
 ### 4. Run Backend (Keep Running)
 
 ```bash
 source venv/bin/activate
-cd /opt/sift/backend
 python main.py
 ```
 
-Backend will run on `localhost:5000` on the server.
+Backend will run on `localhost:5000`. All data is stored relative to the installation directory in `./data/`
 
 ---
 
