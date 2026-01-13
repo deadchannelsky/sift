@@ -1,5 +1,6 @@
-fastapi==0.104.1
-uvicorn==0.24.0
+# Pinned to work with libratom 0.7.1 (old, unmaintained library with rigid dependencies)
+fastapi==0.68.0
+uvicorn==0.15.0
 sqlalchemy==1.4.44
 pandas==2.1.3
 libratom==0.7.1
