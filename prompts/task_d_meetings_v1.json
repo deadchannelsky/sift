@@ -1,0 +1,28 @@
+{
+  "prompt_id": "task_d_meetings_v1",
+  "version": "1.0.0",
+  "task": "meeting_detection",
+  "description": "Identifies real meetings (calendar events) vs. discussion threads and infers meeting metadata",
+  "model_params": {
+    "temperature": 0.3,
+    "num_predict": 400,
+    "stop_sequences": []
+  },
+  "prompt_template": "You are detecting whether an email represents a real meeting (calendar event) or just a discussion.\n\n---\n\nEMAIL TO ANALYZE:\nSubject: {subject}\nFrom: {sender_email}\nDate: {delivery_date}\nMessage Class: {message_class}\nHas ICS Attachment: {has_ics_attachment}\nBody: {body_snippet}\n\n---\n\nTASK: Determine if this email is:\n1. A calendar meeting invite (REQUEST, RESPONSE, etc.)\n2. A follow-up to a meeting (discussion of outcomes)\n3. A proposal to meet (\"let's sync\", \"can we discuss\")\n4. Not meeting-related (pure discussion)\n\nFor each, assign confidence and infer details if possible.\n\nRESPOND ONLY WITH VALID JSON (no preamble, no markdown backticks):\n\n{\n  \"is_meeting_related\": true|false,\n  \"meeting_confidence\": 0.85,\n  \"meeting_type\": \"calendar_invite|follow_up|proposal|discussion\",\n  \"inferred_from\": \"explicit_invite|ics_attachment|language_pattern|meeting_reference\",\n  \"reasoning\": [\n    \"Reasoning 1: Subject line indicators\",\n    \"Reasoning 2: Body language ('Based on our meeting', 'Let's schedule', etc.)\",\n    \"Reasoning 3: Metadata (message class, attachments)\"\n  ],\n  \"inferred_meeting_date\": \"2025-10-15T10:00:00Z|null\",\n  \"inferred_attendees\": [\"name@email.com\", \"...\"],\n  \"inferred_duration_minutes\": 30|null,\n  \"is_calendar_invite\": true|false,\n  \"ics_attachment_detected\": true|false,\n  \"flags\": []\n}\n\nLANGUAGE PATTERNS TO DETECT:\n- MEETING INVITE: \"meeting invite\", \"calendar invite\", \"please accept\", \"tentative?\"\n- FOLLOW-UP: \"Based on our meeting\", \"As discussed\", \"Action items from...\", \"Meeting minutes\"\n- PROPOSAL: \"Can we sync?\", \"Let's discuss\", \"Are you available\", \"Quick call?\"\n- DISCUSSION: Pure back-and-forth without meeting proposal\n\nMETADATA SIGNALS:\n- Message Class \"IPM.Schedule.Meeting.Request\" = definite calendar invite\n- ICS attachment = calendar attachment\n- Subject contains \"MEETING:\" or \"INVITE:\" = likely calendar\n\nEDGE CASES:\n- Proposal to meet but no confirm? meeting_type=\"proposal\", lower confidence\n- Follow-up with no exact date? Infer window from context, flag \"NO_EXACT_DATE\"\n- Declined/canceled meeting? is_meeting_related=true, confidence=high, note cancellation in flags",
+  "example_output": {
+    "is_meeting_related": true,
+    "meeting_confidence": 0.78,
+    "inferred_from": "follow_up_to_meeting",
+    "reasoning": [
+      "References 'Based on the meeting' in first sentence",
+      "Discusses meeting outcomes and decisions",
+      "Email is action item delivery, not scheduling"
+    ],
+    "inferred_meeting_date": "2025-10-14T00:00:00Z",
+    "inferred_attendees": ["alice@company.com", "bob@company.com", "carol@company.com"],
+    "is_calendar_invite": false,
+    "ics_attachment_detected": false,
+    "flags": ["NO_EXACT_MEETING_DATE: Inferred from 'based on the meeting' language"]
+  },
+  "tags": ["default", "v1", "production"]
+}

@@ -1,0 +1,25 @@
+{
+  "prompt_id": "task_c_importance_v1",
+  "version": "1.0.0",
+  "task": "importance_assessment",
+  "description": "Assesses strategic importance tier and assigns time-weight multiplier for work discussed in email",
+  "model_params": {
+    "temperature": 0.5,
+    "num_predict": 400,
+    "stop_sequences": []
+  },
+  "prompt_template": "You are assessing the strategic importance of work discussed in an email. Your goal is to categorize the work and assign a time-weight multiplier.\n\n---\n\nEMAIL TO ANALYZE:\nSubject: {subject}\nFrom: {sender_email}\nDate: {delivery_date}\nBody: {body_snippet}\n\n---\n\nTASK: Assess the importance tier of the work discussed:\n\nTIERS:\n1. CRITICAL: Strategic priority, affects roadmap, requires executive approval, blockers for other work\n2. EXECUTION: Active project work, development/implementation, progress toward milestones\n3. COORDINATION: Meetings, syncs, status updates, cross-team alignment (overhead but necessary)\n4. FYI: Information-only, awareness, nice-to-have updates\n5. NOISE: Spam, mailing lists, auto-generated, not work-related\n\nAssign a weight multiplier:\n- CRITICAL: 5.0x (this counts as 5x effort)\n- EXECUTION: 2.0x (active work, concrete output)\n- COORDINATION: 1.0x (overhead, flat weight)\n- FYI: 0.5x (light awareness)\n- NOISE: 0.0x (ignore)\n\nRESPOND ONLY WITH VALID JSON (no preamble, no markdown backticks):\n\n{\n  \"importance_tier\": \"CRITICAL|EXECUTION|COORDINATION|FYI|NOISE\",\n  \"tier_confidence\": 0.85,\n  \"weight_multiplier\": 2.0,\n  \"reasoning\": [\n    \"Reasoning 1: Observable signals (language, urgency, decision-making)\",\n    \"Reasoning 2: Context (part of larger project, mentions deliverables, etc.)\",\n    \"Reasoning 3: Stakeholder pattern (decision makers present, initiator role)\"\n  ],\n  \"flags\": []\n}\n\nSIGNAL PATTERNS:\n- CRITICAL: \"urgent\", \"blocking\", \"decision needed\", \"executive sponsor\", \"blocker\"\n- EXECUTION: \"implementation\", \"on track\", \"code review\", \"testing\", \"deploy\"\n- COORDINATION: \"sync\", \"standup\", \"FYI\", \"informing\", \"status\"\n- FYI: \"thought you'd like to know\", \"for awareness\", \"cc'd for visibility\"\n- NOISE: \"automated report\", \"mailing list\", \"newsletter\", \"spam folder patterns\"\n\nEDGE CASES:\n- Email with mixed signals (some critical, some coordination)? Tier to highest signal\n- Unclear importance? Default to EXECUTION, flag as \"uncertain\"",
+  "example_output": {
+    "importance_tier": "EXECUTION",
+    "tier_confidence": 0.88,
+    "weight_multiplier": 2.0,
+    "reasoning": [
+      "Active discussion of Q4 deliverables and priorities",
+      "Meeting follow-up indicates decision-making in progress",
+      "Specific technical scope (database changes) = concrete execution work",
+      "Not critical-path (no emergency language), not routine overhead"
+    ],
+    "flags": []
+  },
+  "tags": ["default", "v1", "production"]
+}

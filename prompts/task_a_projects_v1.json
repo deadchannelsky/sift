@@ -1,0 +1,31 @@
+{
+  "prompt_id": "task_a_projects_v1",
+  "version": "1.0.0",
+  "task": "project_extraction",
+  "description": "Extracts project names, initiatives, and programs from email content with confidence scores and evidence chains",
+  "model_params": {
+    "temperature": 0.3,
+    "num_predict": 500,
+    "stop_sequences": []
+  },
+  "prompt_template": "You are extracting project information from workplace emails. Your goal is to identify projects, initiatives, and programs mentioned in the email, with confidence scores and reasoning.\n\n---\n\nEMAIL TO ANALYZE:\nSubject: {subject}\nFrom: {sender_email}\nTo: {recipients}\nDate: {delivery_date}\nBody: {body_snippet}\n\n---\n\nTASK: Extract all projects mentioned. For each project:\n1. What is the project name? (Use exact name if stated, infer if implicit)\n2. How confident are you (0.0-1.0)? (explicit mention=high, inferred=medium, ambiguous=low)\n3. What evidence supports this?\n4. Is this a top-level project or a subcomponent?\n\nRESPOND ONLY WITH VALID JSON (no preamble, no markdown backticks):\n\n{\n  \"extractions\": [\n    {\n      \"extraction\": \"Project Name\",\n      \"type\": \"project|initiative|program|unclear\",\n      \"confidence\": 0.85,\n      \"signal_strength\": \"high|medium|low\",\n      \"reasoning\": [\n        \"Evidence 1: explicit mention in subject\",\n        \"Evidence 2: mentioned in context of deliverables\",\n        \"Evidence 3: specific dates or milestones tied to it\"\n      ],\n      \"flags\": []\n    }\n  ],\n  \"most_likely_project\": \"Primary Project Name\",\n  \"note\": \"Any ambiguities or uncertainties here\"\n}\n\nCONFIDENCE GUIDELINES:\n- HIGH (0.85-1.0): Explicit name, multiple mentions, meeting context\n- MEDIUM (0.50-0.85): Inferred from context, single mention, no explicit name\n- LOW (0.0-0.50): Passing reference, unclear scope, could be other project\n\nEDGE CASES:\n- No project mentioned? Return empty extractions array, set most_likely_project to null\n- Ambiguous (could be project OR routine discussion)? Flag it, set low confidence\n- Subcomponent (feature of larger project)? Note it, flag as \"SUBCOMPONENT\"",
+  "example_output": {
+    "extractions": [
+      {
+        "extraction": "Acme MVP",
+        "type": "project",
+        "confidence": 0.92,
+        "signal_strength": "high",
+        "reasoning": [
+          "Explicit mention: 'Acme MVP' in subject line",
+          "Context: Discussion of Q4 deliverables",
+          "Active execution phase indicated by language"
+        ],
+        "flags": []
+      }
+    ],
+    "most_likely_project": "Acme MVP",
+    "note": ""
+  },
+  "tags": ["default", "v1", "production"]
+}

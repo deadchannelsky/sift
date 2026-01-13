@@ -1,0 +1,38 @@
+{
+  "ollama": {
+    "url": "http://localhost:11434",
+    "model": "mistral:7b",
+    "timeout_seconds": 30,
+    "max_retries": 3,
+    "retry_backoff_ms": 500
+  },
+  "prompts": {
+    "task_a_projects": "task_a_projects_v1",
+    "task_b_stakeholders": "task_b_stakeholders_v1",
+    "task_c_importance": "task_c_importance_v1",
+    "task_d_meetings": "task_d_meetings_v1"
+  },
+  "processing": {
+    "batch_size": 5,
+    "max_workers": 2,
+    "log_level": "INFO",
+    "date_range": {
+      "start": "2025-10-01",
+      "end": "2025-12-31"
+    },
+    "min_conversation_messages": 3
+  },
+  "thresholds": {
+    "confidence_high": 0.80,
+    "confidence_medium": 0.50,
+    "confidence_low": 0.00
+  },
+  "clustering": {
+    "embedding_similarity_threshold": 0.75,
+    "enable_deduplication": true
+  },
+  "output": {
+    "dir": "./data",
+    "formats": ["json", "markdown", "csv"]
+  }
+}

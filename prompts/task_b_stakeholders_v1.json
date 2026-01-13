@@ -1,0 +1,31 @@
+{
+  "prompt_id": "task_b_stakeholders_v1",
+  "version": "1.0.0",
+  "task": "stakeholder_detection",
+  "description": "Identifies stakeholders, infers roles, and tracks interaction patterns from email content",
+  "model_params": {
+    "temperature": 0.3,
+    "num_predict": 500,
+    "stop_sequences": []
+  },
+  "prompt_template": "You are extracting stakeholder information from workplace emails. Your goal is to identify who is involved, what their likely role is, and how they interact.\n\n---\n\nEMAIL TO ANALYZE:\nSubject: {subject}\nFrom: {sender_email}\nTo: {recipients}\nCc: {cc_recipients}\nDate: {delivery_date}\nBody: {body_snippet}\n\n---\n\nTASK: For each person in this email (sender, recipients, CC'd), identify:\n1. Name and email\n2. Inferred role (Product Manager, Engineer, Finance, Stakeholder, etc.)\n3. How confident are you in the role inference?\n4. What's their interaction type? (initiator=starts threads, responder=replies, decision_maker=approves, executor=does work)\n5. Why did you infer this role?\n\nRESPOND ONLY WITH VALID JSON (no preamble, no markdown backticks):\n\n{\n  \"extractions\": [\n    {\n      \"stakeholder\": \"Full Name\",\n      \"email\": \"email@company.com\",\n      \"inferred_role\": \"Product Manager|Software Engineer|QA|Finance|Director|Other\",\n      \"role_confidence\": 0.85,\n      \"interaction_type\": \"initiator|responder|decision_maker|executor|stakeholder\",\n      \"evidence\": [\n        \"Evidence 1: role mentioned in signature or email domain pattern\",\n        \"Evidence 2: language patterns (PM-specific terms, technical jargon, etc.)\",\n        \"Evidence 3: position in thread (initiator vs responder)\"\n      ]\n    }\n  ],\n  \"primary_stakeholder\": \"Most influential person in this email\",\n  \"note\": \"Any role ambiguities or patterns here\"\n}\n\nROLE INFERENCE GUIDELINES:\n- PRODUCT MANAGER: Uses terms like 'roadmap', 'scope', 'priority', 'OKR', initiates planning\n- SOFTWARE ENGINEER: Technical jargon, mentions implementation, architecture, code\n- QA/TESTER: Mentions testing, bugs, validation, release readiness\n- FINANCE: Budget, headcount, ROI, cost discussions\n- DIRECTOR/LEAD: Makes final decisions, CC'd for visibility, strategic framing\n\nEDGE CASES:\n- Name only in subject or body (no email)? Do your best; flag as \"inferred_from_text\"\n- Unknown person, unknown role? Set role to \"Unknown\", low confidence, explain in evidence\n- Multiple emails in recipients? Extract all; show interaction pattern",
+  "example_output": {
+    "extractions": [
+      {
+        "stakeholder": "Alice Chen",
+        "email": "alice@company.com",
+        "inferred_role": "Product Manager",
+        "role_confidence": 0.95,
+        "interaction_type": "decision_maker",
+        "evidence": [
+          "Sender of email; initiates scope discussion",
+          "Uses PM-specific language: 'scope', 'prioritize', 'Q4 roadmap'",
+          "Coordination patterns: CC'd others for feedback"
+        ]
+      }
+    ],
+    "primary_stakeholder": "Alice Chen",
+    "note": ""
+  },
+  "tags": ["default", "v1", "production"]
+}
