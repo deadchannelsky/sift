@@ -12,7 +12,7 @@ from pathlib import Path
 
 from app.models import init_db, get_session, ProcessingJob
 from app.pst_parser import PSTParser
-from app.utils import logger, get_db_path, ensure_data_dir
+from app.utils import logger, get_db_path, ensure_data_dir, BACKEND_DIR
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -42,7 +42,7 @@ async def startup_event():
 
 # Request/Response models
 class ParseRequest(BaseModel):
-    pst_filename: str  # Filename in /opt/sift/data/ (e.g., "sample.pst")
+    pst_filename: str  # Filename in data/ folder (e.g., "sample.pst")
     date_start: str = "2025-10-01"
     date_end: str = "2025-12-31"
     min_conversation_messages: int = 3
@@ -90,7 +90,7 @@ async def parse_pst(
 
     Args:
         request: JSON body with:
-            - pst_filename: Filename in /opt/sift/data/ (e.g., "sample.pst")
+            - pst_filename: Filename in data/ folder (e.g., "sample.pst")
             - date_start: Start date (YYYY-MM-DD)
             - date_end: End date (YYYY-MM-DD)
             - min_conversation_messages: Minimum messages in thread
@@ -103,8 +103,9 @@ async def parse_pst(
         }
     """
     try:
-        # Validate PST file exists
-        pst_path = Path("/opt/sift/data") / request.pst_filename
+        # Validate PST file exists (in backend/data/ folder)
+        data_dir = BACKEND_DIR / "data"
+        pst_path = data_dir / request.pst_filename
 
         if not pst_path.exists():
             raise HTTPException(status_code=404, detail=f"PST file not found: {pst_path}")

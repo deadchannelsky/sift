@@ -6,8 +6,10 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-# Ensure logs directory exists
-LOG_DIR = Path("backend/logs")
+# Ensure logs directory exists (relative to backend installation)
+# Get the backend directory (where this file is located)
+BACKEND_DIR = Path(__file__).parent.parent
+LOG_DIR = BACKEND_DIR / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 # Configure logging
@@ -99,12 +101,14 @@ class TaskTimer:
 
 
 def ensure_data_dir():
-    """Ensure data directory exists"""
-    Path("data").mkdir(exist_ok=True)
-    Path("data/outputs").mkdir(exist_ok=True)
+    """Ensure data directory exists (relative to backend installation)"""
+    data_dir = BACKEND_DIR / "data"
+    data_dir.mkdir(exist_ok=True)
+    (data_dir / "outputs").mkdir(exist_ok=True)
+    return data_dir
 
 
 def get_db_path() -> str:
-    """Get path to SQLite database"""
-    ensure_data_dir()
-    return "data/messages.db"
+    """Get path to SQLite database (relative to backend installation)"""
+    data_dir = ensure_data_dir()
+    return str(data_dir / "messages.db")
