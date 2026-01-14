@@ -140,8 +140,16 @@ class ProcessingJob(Base):
 
 
 def init_db(db_path: str = "data/messages.db"):
-    """Initialize database and create all tables"""
-    engine = create_engine(f"sqlite:///{db_path}", echo=False)
+    """Initialize database and create all tables
+
+    Note: check_same_thread=False allows FastAPI background tasks (which run in threads)
+    to safely access the database. SQLite handles thread safety internally.
+    """
+    engine = create_engine(
+        f"sqlite:///{db_path}",
+        echo=False,
+        connect_args={"check_same_thread": False}
+    )
     Base.metadata.create_all(engine)
     return engine
 
