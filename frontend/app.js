@@ -34,6 +34,8 @@ let aggregatedData = {
     stakeholders: []
 };
 
+let selectedFile = null;  // Store the currently selected file
+
 // ============================================================================
 // INITIALIZATION
 // ============================================================================
@@ -77,6 +79,7 @@ function handleFileDrop(e) {
     const files = e.dataTransfer.files;
     if (files.length > 0) {
         const file = files[0];
+        selectedFile = file;  // Store the file globally
         displayFileInfo(file);
         showUploadButton();
     }
@@ -86,6 +89,7 @@ function handleFileSelect(e) {
     const files = e.target.files;
     if (files.length > 0) {
         const file = files[0];
+        selectedFile = file;  // Store the file globally
         displayFileInfo(file);
         showUploadButton();
     }
@@ -105,6 +109,7 @@ function displayFileInfo(file) {
 }
 
 function clearFile() {
+    selectedFile = null;  // Clear the stored file
     document.getElementById('file-input').value = '';
     document.getElementById('file-info').style.display = 'none';
     document.getElementById('upload-zone').style.display = 'block';
@@ -117,11 +122,12 @@ function showUploadButton() {
 }
 
 async function startUpload() {
-    const file = document.getElementById('file-input').files[0];
-    if (!file) {
+    if (!selectedFile) {
         showError('upload-error', 'No file selected');
         return;
     }
+
+    const file = selectedFile;
 
     const uploadBtn = document.getElementById('upload-btn');
     const uploadProgress = document.getElementById('upload-progress');
