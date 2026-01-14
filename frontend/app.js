@@ -106,7 +106,8 @@ function displayFileInfo(file) {
     const fileSize = document.getElementById('file-size');
 
     fileName.textContent = file.name;
-    fileSize.textContent = formatBytes(file.size);
+    // Handle existing files that don't have size info
+    fileSize.textContent = file.isExisting ? '(existing file)' : formatBytes(file.size);
 
     fileInfo.style.display = 'flex';
     document.getElementById('upload-zone').style.display = 'none';
@@ -650,8 +651,19 @@ async function loadPSTFiles() {
 }
 
 function selectExistingFile(filename) {
-    // Directly parse the selected file with current configuration
-    parseSelectedFile(filename);
+    // Create synthetic file object for existing file
+    selectedFile = {
+        name: filename,
+        size: 0,  // Size unknown (already on server)
+        isExisting: true
+    };
+
+    // Display file info and show config section
+    displayFileInfo(selectedFile);
+
+    // Show parse button with updated text
+    document.getElementById('upload-btn').textContent = 'Parse Selected File';
+    document.getElementById('upload-btn').style.display = 'inline-block';
 }
 
 async function parseSelectedFile(filename) {
