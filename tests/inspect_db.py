@@ -8,7 +8,7 @@ import sqlite3
 import subprocess
 import os
 from pathlib import Path
-from tabulate import tabulate
+from tabulate import tabulate as format_table
 
 # Get the database path
 BACKEND_DIR = Path(__file__).parent.parent / "backend"
@@ -92,7 +92,7 @@ def main():
             for row in messages
         ]
         headers = ["Message ID", "Subject", "Sender", "Date", "Status"]
-        print(tabulate(table_data, headers=headers, tablefmt="grid"))
+        print(format_table(table_data, headers=headers, tablefmt="grid"))
     else:
         print("  ❌ No messages found")
 
@@ -120,7 +120,7 @@ def main():
             for row in conversations
         ]
         headers = ["Conv ID", "Topic", "Messages", "Start Date", "End Date"]
-        print(tabulate(table_data, headers=headers, tablefmt="grid"))
+        print(format_table(table_data, headers=headers, tablefmt="grid"))
     else:
         print("  ❌ No conversations found")
 
@@ -137,7 +137,7 @@ def main():
 
     if enrichment:
         table_data = [[row["enrichment_status"], row["count"]] for row in enrichment]
-        print(tabulate(table_data, headers=["Status", "Count"], tablefmt="grid"))
+        print(format_table(table_data, headers=["Status", "Count"], tablefmt="grid"))
     else:
         print("  ❌ No enrichment data")
 
@@ -167,7 +167,7 @@ def main():
             for row in jobs
         ]
         headers = ["Job ID", "Status", "File", "Total", "Processed", "Created"]
-        print(tabulate(table_data, headers=headers, tablefmt="grid"))
+        print(format_table(table_data, headers=headers, tablefmt="grid"))
     else:
         print("  ❌ No jobs found")
 
@@ -199,7 +199,7 @@ def main():
             ]
             for row in distribution
         ]
-        print(tabulate(table_data, headers=["Size Range", "Conversations", "Avg"], tablefmt="grid"))
+        print(format_table(table_data, headers=["Size Range", "Conversations", "Avg"], tablefmt="grid"))
 
     # Summary
     print_section("✅ SUMMARY")
