@@ -10,7 +10,7 @@ import uuid
 import os
 from pathlib import Path
 
-from app.models import init_db, get_session, ProcessingJob
+from app.models import init_db, get_session, ProcessingJob, Message, Conversation
 from app.pst_parser import PSTParser
 from app.utils import logger, get_db_path, ensure_data_dir, BACKEND_DIR
 
@@ -254,6 +254,59 @@ async def get_results(job_id: str) -> ResultsResponse:
         raise
     except Exception as e:
         logger.error(f"Error getting results: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/stats")
+async def get_stats():
+    """Get database statistics"""
+    try:
+        db_path = get_db_path()
+        engine = init_db(db_path)
+        session = get_session(engine)
+
+        # Query statistics
+        message_count = session.query(Message).count()
+        conversation_count = session.query(Conversation).count()
+        pending_enrichment = session.query(Message).filter_by(enrichment_status="pending").count()
+        job_count = session.query(ProcessingJob).count()
+
+        # Sample recent messages
+        recent_messages = session.query(Message).order_by(Message.created_at.desc()).limit(5).all()
+
+        # Sample conversations
+        top_conversations = session.query(Conversation).order_by(Conversation.message_count.desc()).limit(5).all()
+
+        return {
+            "database": {
+                "messages": message_count,
+                "conversations": conversation_count,
+                "pending_enrichment": pending_enrichment,
+                "jobs": job_count
+            },
+            "recent_messages": [
+                {
+                    "msg_id": m.msg_id[:8] + "...",
+                    "subject": m.subject[:50] if m.subject else "(no subject)",
+                    "sender": m.sender_email,
+                    "date": str(m.delivery_date) if m.delivery_date else None,
+                    "status": m.enrichment_status
+                }
+                for m in recent_messages
+            ],
+            "top_conversations": [
+                {
+                    "topic": c.conversation_topic[:60],
+                    "messages": c.message_count,
+                    "start": str(c.date_range_start) if c.date_range_start else None,
+                    "end": str(c.date_range_end) if c.date_range_end else None
+                }
+                for c in top_conversations
+            ]
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting stats: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
