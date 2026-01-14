@@ -157,13 +157,21 @@ class PSTParser:
         except Exception as e:
             logger.warning(f"Error processing folder: {e}")
 
+    def _to_str(self, value) -> str:
+        """Convert bytes or any value to string"""
+        if value is None:
+            return ""
+        if isinstance(value, bytes):
+            return value.decode('utf-8', errors='ignore')
+        return str(value)
+
     def _extract_message(self, message) -> Optional[dict]:
         """Extract relevant fields from a pypff message object"""
         try:
-            # Basic fields - pypff API
-            subject = message.subject if hasattr(message, 'subject') else ""
-            sender_email = message.sender_email_address if hasattr(message, 'sender_email_address') else ""
-            sender_name = message.sender_name if hasattr(message, 'sender_name') else ""
+            # Basic fields - pypff API (handle both bytes and strings)
+            subject = self._to_str(message.subject if hasattr(message, 'subject') else "")
+            sender_email = self._to_str(message.sender_email_address if hasattr(message, 'sender_email_address') else "")
+            sender_name = self._to_str(message.sender_name if hasattr(message, 'sender_name') else "")
 
             # Recipients (comma-separated)
             recipients = []
@@ -171,9 +179,9 @@ class PSTParser:
                 try:
                     for recipient in message.recipients:
                         if hasattr(recipient, 'email_address'):
-                            recipients.append(recipient.email_address)
+                            recipients.append(self._to_str(recipient.email_address))
                         else:
-                            recipients.append(str(recipient))
+                            recipients.append(self._to_str(recipient))
                 except:
                     pass
             recipients_str = ",".join(recipients)
@@ -184,9 +192,9 @@ class PSTParser:
                 try:
                     for cc_recipient in message.cc_recipients:
                         if hasattr(cc_recipient, 'email_address'):
-                            cc.append(cc_recipient.email_address)
+                            cc.append(self._to_str(cc_recipient.email_address))
                         else:
-                            cc.append(str(cc_recipient))
+                            cc.append(self._to_str(cc_recipient))
                 except:
                     pass
             cc_str = ",".join(cc)
@@ -197,13 +205,13 @@ class PSTParser:
             # Body (pypff has plain_text_body and html_body)
             body = ""
             if hasattr(message, 'plain_text_body'):
-                body = message.plain_text_body or ""
+                body = self._to_str(message.plain_text_body or "")
             if not body and hasattr(message, 'html_body'):
-                body = message.html_body or ""
+                body = self._to_str(message.html_body or "")
             body_snippet = (body[:500] if body else "").replace("\n", " ")
 
             # Message class
-            message_class = message.message_class if hasattr(message, 'message_class') else "IPM.Note"
+            message_class = self._to_str(message.message_class if hasattr(message, 'message_class') else "IPM.Note")
 
             # Attachments
             has_ics = False
@@ -222,7 +230,8 @@ class PSTParser:
             # Conversation topic (use subject or sender as grouping key)
             conversation_topic = subject if subject else f"Conversation with {sender_name or sender_email}"
             if not conversation_topic:
-                conversation_topic = f"Message from {sender_name or sender_email}"
+                conversation_topic = f"Message from {self._to_str(sender_name or sender_email)}"
+            conversation_topic = self._to_str(conversation_topic)
 
             # Generate unique message ID
             msg_id = self._generate_msg_id(sender_email, subject, delivery_date)
@@ -249,7 +258,11 @@ class PSTParser:
 
     def _generate_msg_id(self, sender: str, subject: str, date) -> str:
         """Generate unique message ID"""
-        combined = f"{sender}:{subject}:{date}".encode()
+        # Ensure all values are strings before encoding
+        sender_str = self._to_str(sender)
+        subject_str = self._to_str(subject)
+        date_str = self._to_str(date)
+        combined = f"{sender_str}:{subject_str}:{date_str}".encode('utf-8', errors='ignore')
         return hashlib.sha256(combined).hexdigest()[:32]
 
     def _is_in_date_range(self, delivery_date, date_start, date_end) -> bool:
