@@ -45,6 +45,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     await checkBackendStatus();
     loadModels();
     loadPSTFiles();  // Load list of previously uploaded PST files
+
+    // Set end date to today
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('date-end').value = today;
 });
 
 function setupEventListeners() {
@@ -590,10 +594,16 @@ function resetUploadPage() {
     document.getElementById('upload-zone').style.display = 'block';
     document.getElementById('config-section').style.display = 'none';
     document.getElementById('upload-btn').style.display = 'none';
+    document.getElementById('upload-btn').textContent = 'Upload & Parse';  // Reset button text
     document.getElementById('upload-progress').style.display = 'none';
     document.getElementById('upload-error').style.display = 'none';
     document.getElementById('upload-bar').style.width = '0%';
     document.getElementById('upload-percent').textContent = '0%';
+
+    // Reset date fields
+    document.getElementById('date-start').value = '2020-01-01';
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('date-end').value = today;
 }
 
 async function loadPSTFiles() {
@@ -640,22 +650,36 @@ async function loadPSTFiles() {
 }
 
 function selectExistingFile(filename) {
-    // Create a synthetic file object to mimic uploaded file
-    // We'll store the filename and mark it as existing
-    selectedFile = {
-        name: filename,
-        isExisting: true
-    };
+    // Directly parse the selected file with current configuration
+    parseSelectedFile(filename);
+}
 
-    // Display file info
-    const fileInfo = document.getElementById('file-info');
-    document.getElementById('file-name').textContent = filename;
-    document.getElementById('file-size').textContent = '(existing file)';
-    fileInfo.style.display = 'block';
-    document.getElementById('upload-zone').style.display = 'none';
-    document.getElementById('config-section').style.display = 'block';
-    document.getElementById('upload-btn').textContent = 'Parse Selected File';
-    document.getElementById('upload-btn').style.display = 'inline-block';
+async function parseSelectedFile(filename) {
+    // Get configuration from form
+    const dateStart = document.getElementById('date-start').value;
+    const dateEnd = document.getElementById('date-end').value;
+    const minMessages = parseInt(document.getElementById('min-messages').value);
+    const maxMessages = document.getElementById('max-messages').value
+        ? parseInt(document.getElementById('max-messages').value)
+        : null;
+
+    try {
+        // Start parsing
+        const parseResult = await apiCall('POST', '/parse', {
+            pst_filename: filename,
+            date_start: dateStart,
+            date_end: dateEnd,
+            min_conversation_messages: minMessages,
+            max_messages: maxMessages
+        });
+
+        currentJobIds.parse = parseResult.job_id;
+        goToPipeline();
+        startPolling('parse');
+
+    } catch (error) {
+        showError('upload-error', `Failed to parse: ${error.message}`);
+    }
 }
 
 function goToPipeline() {

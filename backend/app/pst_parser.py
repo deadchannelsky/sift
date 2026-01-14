@@ -68,7 +68,9 @@ class PSTParser:
 
                 # Track total messages extracted (for max_messages limit)
                 # Use dict for mutability across recursive calls
-                counter = {"count": 0}
+                counter = {"count": 0, "scanned": 0, "date_filtered": 0}
+
+                logger.info(f"Date range filter: {date_start} to {date_end}")
 
                 # Extract messages from all folders (libratom returns pypff folder objects)
                 for folder in archive.folders():
@@ -83,6 +85,7 @@ class PSTParser:
                             try:
                                 message = folder.get_sub_message(msg_idx)
                                 msg_data = self._extract_message(message)
+                                counter["scanned"] += 1
 
                                 if msg_data and self._is_in_date_range(
                                     msg_data["delivery_date"],
@@ -95,6 +98,8 @@ class PSTParser:
                                         conversations[topic] = []
                                     conversations[topic].append(msg_data)
                                     counter["count"] += 1
+                                else:
+                                    counter["date_filtered"] += 1
 
                             except Exception as e:
                                 logger.warning(f"Error extracting message: {e}")
@@ -116,13 +121,34 @@ class PSTParser:
                     except Exception as e:
                         logger.warning(f"Error processing folder: {e}")
 
-                logger.info(f"Found {len(conversations)} conversations")
+                logger.info(
+                    f"Message extraction: {counter['count']} accepted, "
+                    f"{counter['date_filtered']} filtered by date range, "
+                    f"{counter['scanned']} total scanned"
+                )
+                logger.info(f"Found {len(conversations)} conversations after date range filter")
+
+                # Show message distribution before filtering by minimum
+                total_messages_in_convs = sum(len(msgs) for msgs in conversations.values())
+                logger.info(f"Total messages in conversations: {total_messages_in_convs}")
 
                 # Filter by minimum message count and store to DB
                 stored_count = 0
+                conversations_meeting_threshold = 0
+                conversations_filtered_out = 0
+
                 for topic, messages in conversations.items():
                     if len(messages) >= min_conversation_messages:
                         stored_count += self._store_conversation(topic, messages)
+                        conversations_meeting_threshold += 1
+                    else:
+                        conversations_filtered_out += 1
+
+                logger.info(
+                    f"Conversations: {conversations_meeting_threshold} meet min threshold "
+                    f"({min_conversation_messages} msgs), {conversations_filtered_out} filtered out"
+                )
+                logger.info(f"Messages to store: {stored_count}")
 
                 self.message_count = stored_count
                 self.conversation_count = len(
