@@ -32,8 +32,8 @@ def check_aggregated_files():
     print(" 1. CHECKING AGGREGATED DATA FILES")
     print("="*80)
 
-    # Look in root data/ directory (absolute path from tests/)
-    data_dir = os.path.join(os.path.dirname(__file__), "..", "data")
+    # Look in backend/data directory (aggregator writes relative to backend)
+    data_dir = os.path.join(os.path.dirname(__file__), "..", "backend", "data")
     data_dir = os.path.abspath(data_dir)
 
     projects_file = os.path.join(data_dir, "aggregated_projects.json")
@@ -145,7 +145,7 @@ def validate_csv_structure():
     print(" 4. VALIDATING CSV STRUCTURE")
     print("="*80)
 
-    data_dir = os.path.join(os.path.dirname(__file__), "..", "data")
+    data_dir = os.path.join(os.path.dirname(__file__), "..", "backend", "data")
     data_dir = os.path.abspath(data_dir)
 
     # Check projects_summary.csv
@@ -208,7 +208,7 @@ def validate_markdown_content():
     print(" 5. VALIDATING MARKDOWN REPORT")
     print("="*80)
 
-    data_dir = os.path.join(os.path.dirname(__file__), "..", "data")
+    data_dir = os.path.join(os.path.dirname(__file__), "..", "backend", "data")
     data_dir = os.path.abspath(data_dir)
     markdown_file = os.path.join(data_dir, "Q4_2025_Summary.md")
 

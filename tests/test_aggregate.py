@@ -173,8 +173,8 @@ def check_output_files():
     print(" 5. CHECKING OUTPUT FILES")
     print("="*80)
 
-    # Look in root data/ directory (backend writes relative to project root, not tests/)
-    output_dir = os.path.join(os.path.dirname(__file__), "..", "data")
+    # Look in backend/data directory (aggregator writes relative to backend)
+    output_dir = os.path.join(os.path.dirname(__file__), "..", "backend", "data")
     output_dir = os.path.abspath(output_dir)
     projects_file = os.path.join(output_dir, "aggregated_projects.json")
     stakeholders_file = os.path.join(output_dir, "aggregated_stakeholders.json")
@@ -247,8 +247,8 @@ def validate_clustering_quality():
     print(" 6. VALIDATING CLUSTERING QUALITY")
     print("="*80)
 
-    # Look in root data/ directory
-    output_dir = os.path.join(os.path.dirname(__file__), "..", "data")
+    # Look in backend/data directory
+    output_dir = os.path.join(os.path.dirname(__file__), "..", "backend", "data")
     output_dir = os.path.abspath(output_dir)
     projects_file = os.path.join(output_dir, "aggregated_projects.json")
 
@@ -332,7 +332,7 @@ def main():
     print("="*80)
 
     # Show output files location
-    output_dir = os.path.join(os.path.dirname(__file__), "..", "data")
+    output_dir = os.path.join(os.path.dirname(__file__), "..", "backend", "data")
     output_dir = os.path.abspath(output_dir)
     print(f"\nOutput files location: {output_dir}/")
     print("  - aggregated_projects.json")
