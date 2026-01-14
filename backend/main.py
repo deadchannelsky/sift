@@ -2,8 +2,10 @@
 Sift Backend - FastAPI application
 Entry point for PST parsing and enrichment pipeline
 """
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional
 import uuid
@@ -17,6 +19,10 @@ from app.prompt_manager import PromptManager
 from app.enrichment import EnrichmentEngine
 from app.aggregator import AggregationEngine
 from app.reporter import ReporterEngine
+from app.file_upload import (
+    sanitize_filename, validate_pst_file, check_disk_space,
+    save_uploaded_file, cleanup_old_uploads, get_upload_stats
+)
 from app.utils import logger, get_db_path, ensure_data_dir, BACKEND_DIR
 import json as json_lib
 
@@ -172,6 +178,19 @@ class AggregateStatusResponse(BaseModel):
 
 
 # ============================================================================
+# STATIC FILE SERVING (Frontend)
+# ============================================================================
+
+# Mount frontend directory for serving static files
+frontend_dir = Path(__file__).parent.parent / "frontend"
+if frontend_dir.exists():
+    app.mount("/", StaticFiles(directory=str(frontend_dir), html=True), name="frontend")
+    logger.info(f"✅ Frontend served from: {frontend_dir}")
+else:
+    logger.warning(f"⚠️ Frontend directory not found: {frontend_dir}")
+
+
+# ============================================================================
 # ENDPOINTS
 # ============================================================================
 
@@ -183,6 +202,84 @@ async def root():
         "version": "0.1.0",
         "status": "running"
     }
+
+
+@app.post("/upload")
+async def upload_pst_file(file: UploadFile = File(...)):
+    """
+    Upload PST file for processing
+
+    Accepts large PST files (multi-GB) with streaming to disk.
+    Validates file format before accepting.
+
+    Args:
+        file: PST file to upload
+
+    Returns:
+        Dictionary with filename and file size
+
+    Errors:
+        400: Invalid file format or failed validation
+        500: Server error (disk space, IO error, etc.)
+    """
+    try:
+        # Sanitize filename
+        safe_filename = sanitize_filename(file.filename)
+        if not safe_filename.lower().endswith('.pst'):
+            safe_filename += '.pst'
+
+        # Get upload directory
+        upload_dir = Path(config.get("output", {}).get("dir", "./data"))
+        file_path = upload_dir / safe_filename
+
+        # Read file content while checking size
+        logger.info(f"Uploading file: {safe_filename}")
+        file_content = await file.read()
+        file_size = len(file_content)
+
+        # Check disk space before saving
+        has_space, space_msg = check_disk_space(upload_dir, file_size)
+        if not has_space:
+            logger.error(space_msg)
+            raise HTTPException(status_code=507, detail=space_msg)
+
+        # Save file with streaming
+        success, save_msg = save_uploaded_file(file_path, file_content)
+        if not success:
+            logger.error(save_msg)
+            raise HTTPException(status_code=500, detail=save_msg)
+
+        # Validate PST file
+        is_valid, validation_msg = validate_pst_file(file_path)
+        if not is_valid:
+            # Delete invalid file
+            try:
+                file_path.unlink()
+            except:
+                pass
+            logger.error(f"Invalid PST file: {validation_msg}")
+            raise HTTPException(status_code=400, detail=validation_msg)
+
+        # Cleanup old uploads (keep latest 5)
+        cleanup_old_uploads(upload_dir, keep_latest_n=5)
+
+        # Get upload stats
+        stats = get_upload_stats(upload_dir)
+
+        logger.info(f"✅ Upload successful: {safe_filename} ({file_size / (1024**2):.1f}MB)")
+
+        return {
+            "filename": safe_filename,
+            "size": file_size,
+            "size_mb": round(file_size / (1024 ** 2), 2),
+            "upload_stats": stats
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Upload error: {e}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 
 @app.post("/parse")
@@ -466,6 +563,71 @@ async def get_stats():
     except Exception as e:
         logger.error(f"Error getting stats: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/reports/{filename}")
+async def download_report(filename: str):
+    """
+    Download a generated report file
+
+    Supported files:
+    - aggregated_projects.json
+    - aggregated_stakeholders.json
+    - Q4_2025_Summary.md
+    - projects_summary.csv
+    - stakeholders_summary.csv
+    - project_stakeholder_matrix.csv
+
+    Args:
+        filename: Name of report file to download
+
+    Returns:
+        File content with appropriate content-type header
+
+    Errors:
+        404: File not found
+        403: Invalid filename (path traversal attempt)
+    """
+    try:
+        # Security: Prevent path traversal
+        if ".." in filename or "/" in filename or "\\" in filename:
+            raise HTTPException(status_code=403, detail="Invalid filename")
+
+        # Allowed report files
+        allowed_files = {
+            "aggregated_projects.json": "application/json",
+            "aggregated_stakeholders.json": "application/json",
+            "Q4_2025_Summary.md": "text/markdown",
+            "projects_summary.csv": "text/csv",
+            "stakeholders_summary.csv": "text/csv",
+            "project_stakeholder_matrix.csv": "text/csv"
+        }
+
+        if filename not in allowed_files:
+            raise HTTPException(status_code=403, detail="File type not allowed for download")
+
+        # Get file path
+        data_dir = Path(config.get("output", {}).get("dir", "./data"))
+        file_path = data_dir / filename
+
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail=f"Report file not found: {filename}")
+
+        # Return file with correct content-type
+        media_type = allowed_files[filename]
+        logger.info(f"Downloading report: {filename}")
+
+        return FileResponse(
+            path=file_path,
+            filename=filename,
+            media_type=media_type
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error downloading report: {e}")
+        raise HTTPException(status_code=500, detail=f"Error downloading report: {str(e)}")
 
 
 @app.post("/enrich")

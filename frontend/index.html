@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sift - Email Intelligence Extraction</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="container">
+            <div class="header-content">
+                <h1>📧 Sift</h1>
+                <p class="subtitle">Email Intelligence Extraction & Analysis</p>
+            </div>
+            <div class="header-status" id="header-status">
+                <span id="backend-status" class="status-badge loading">Connecting...</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <div class="container">
+        <!-- ========== PAGE 1: UPLOAD ========== -->
+        <section id="upload-page" class="page active">
+            <div class="page-content">
+                <h2>Upload PST File</h2>
+                <p class="help-text">Upload an Outlook PST file to extract email intelligence. Supports files up to 10GB.</p>
+
+                <!-- Upload Zone -->
+                <div class="upload-zone" id="upload-zone">
+                    <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="17 8 12 3 7 8"></polyline>
+                        <line x1="12" y1="3" x2="12" y2="15"></line>
+                    </svg>
+                    <h3>Drag & drop your PST file here</h3>
+                    <p>or click to select from computer</p>
+                    <input type="file" id="file-input" accept=".pst" style="display: none;">
+                </div>
+
+                <!-- File Info -->
+                <div id="file-info" class="file-info" style="display: none;">
+                    <div class="file-details">
+                        <span class="file-name" id="file-name"></span>
+                        <span class="file-size" id="file-size"></span>
+                    </div>
+                    <button type="button" class="btn-small btn-danger" onclick="clearFile()">Clear</button>
+                </div>
+
+                <!-- Upload Progress -->
+                <div id="upload-progress" class="upload-progress" style="display: none;">
+                    <label>Upload Progress</label>
+                    <div class="progress-bar">
+                        <div id="upload-bar" class="progress-fill"></div>
+                    </div>
+                    <p id="upload-percent">0%</p>
+                </div>
+
+                <!-- Configuration Options -->
+                <div class="config-section" style="display: none;" id="config-section">
+                    <h3>Configuration</h3>
+
+                    <div class="form-group">
+                        <label>Date Range</label>
+                        <div class="date-range">
+                            <input type="date" id="date-start" value="2025-10-01">
+                            <span>to</span>
+                            <input type="date" id="date-end" value="2025-12-31">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Minimum Conversation Messages: <span id="min-messages-value">3</span></label>
+                        <input type="range" id="min-messages" min="1" max="10" value="3"
+                               oninput="updateValue('min-messages-value', this.value)">
+                        <small>Only analyze email threads with at least this many messages</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Maximum Messages to Process (optional)</label>
+                        <input type="number" id="max-messages" placeholder="Leave empty to process all" min="1">
+                        <small>Useful for testing with large files</small>
+                    </div>
+                </div>
+
+                <!-- Upload Button -->
+                <div class="button-group">
+                    <button id="upload-btn" class="btn btn-primary" onclick="startUpload()" style="display: none;">
+                        Upload & Parse
+                    </button>
+                </div>
+
+                <!-- Error Message -->
+                <div id="upload-error" class="alert alert-danger" style="display: none;"></div>
+            </div>
+        </section>
+
+        <!-- ========== PAGE 2: PIPELINE DASHBOARD ========== -->
+        <section id="pipeline-page" class="page">
+            <div class="page-content">
+                <h2>Pipeline Progress</h2>
+                <p class="help-text">Monitor the progress of your email extraction pipeline.</p>
+
+                <!-- Workflow Visualization -->
+                <div class="workflow">
+                    <div class="workflow-step" id="parse-step">
+                        <div class="step-icon">📄</div>
+                        <h3>Parse</h3>
+                        <p class="step-description">Extract emails from PST</p>
+                    </div>
+                    <div class="workflow-arrow">→</div>
+                    <div class="workflow-step" id="enrich-step">
+                        <div class="step-icon">🔍</div>
+                        <h3>Enrich</h3>
+                        <p class="step-description">Extract intelligence with LLM</p>
+                    </div>
+                    <div class="workflow-arrow">→</div>
+                    <div class="workflow-step" id="aggregate-step">
+                        <div class="step-icon">📊</div>
+                        <h3>Aggregate</h3>
+                        <p class="step-description">Cluster & deduplicate</p>
+                    </div>
+                </div>
+
+                <!-- Job Status Cards -->
+                <div class="job-cards">
+                    <!-- Parse Card -->
+                    <div class="job-card" id="parse-card">
+                        <h4>Parsing</h4>
+                        <div class="status-badge" id="parse-status">Pending</div>
+                        <div class="progress-bar">
+                            <div id="parse-progress" class="progress-fill" style="width: 0%"></div>
+                        </div>
+                        <p id="parse-info" class="job-info">Waiting to start...</p>
+                        <div id="parse-error" class="alert alert-danger" style="display: none;"></div>
+                    </div>
+
+                    <!-- Enrich Card -->
+                    <div class="job-card" id="enrich-card">
+                        <h4>Enrichment</h4>
+                        <div class="status-badge" id="enrich-status">Pending</div>
+                        <div class="progress-bar">
+                            <div id="enrich-progress" class="progress-fill" style="width: 0%"></div>
+                        </div>
+                        <p id="enrich-info" class="job-info">Waiting for parsing to complete...</p>
+                        <div id="enrich-error" class="alert alert-danger" style="display: none;"></div>
+                        <div id="enrich-config" class="enrich-config" style="display: none;">
+                            <div class="form-group">
+                                <label>Batch Size: <span id="batch-value">5</span></label>
+                                <input type="range" id="batch-size" min="1" max="20" value="5"
+                                       oninput="updateValue('batch-value', this.value)">
+                            </div>
+                            <div class="form-group">
+                                <label>Model</label>
+                                <select id="model-select" onchange="switchModel()">
+                                    <option value="">Loading models...</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button id="start-enrich-btn" class="btn btn-primary" onclick="startEnrichment()"
+                                style="display: none;">Start Enrichment</button>
+                    </div>
+
+                    <!-- Aggregate Card -->
+                    <div class="job-card" id="aggregate-card">
+                        <h4>Aggregation</h4>
+                        <div class="status-badge" id="aggregate-status">Pending</div>
+                        <div class="progress-bar">
+                            <div id="aggregate-progress" class="progress-fill" style="width: 0%"></div>
+                        </div>
+                        <p id="aggregate-info" class="job-info">Waiting for enrichment to complete...</p>
+                        <div id="aggregate-error" class="alert alert-danger" style="display: none;"></div>
+                        <button id="start-aggregate-btn" class="btn btn-primary" onclick="startAggregation()"
+                                style="display: none;">Start Aggregation</button>
+                    </div>
+                </div>
+
+                <!-- Navigation Buttons -->
+                <div class="button-group">
+                    <button class="btn btn-secondary" onclick="goToUpload()">← Back to Upload</button>
+                    <button id="results-btn" class="btn btn-primary" onclick="goToResults()"
+                            style="display: none;">View Results →</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ========== PAGE 3: RESULTS VIEWER ========== -->
+        <section id="results-page" class="page">
+            <div class="page-content">
+                <h2>Analysis Results</h2>
+
+                <!-- Statistics Cards -->
+                <div class="stats-cards">
+                    <div class="stat-card">
+                        <h4>Total Messages</h4>
+                        <p class="stat-value" id="stat-messages">-</p>
+                    </div>
+                    <div class="stat-card">
+                        <h4>Conversations</h4>
+                        <p class="stat-value" id="stat-conversations">-</p>
+                    </div>
+                    <div class="stat-card">
+                        <h4>Projects Found</h4>
+                        <p class="stat-value" id="stat-projects">-</p>
+                    </div>
+                    <div class="stat-card">
+                        <h4>Stakeholders</h4>
+                        <p class="stat-value" id="stat-stakeholders">-</p>
+                    </div>
+                </div>
+
+                <!-- Tabs for Results -->
+                <div class="tabs">
+                    <button class="tab-btn active" onclick="switchTab('projects-tab')">Projects</button>
+                    <button class="tab-btn" onclick="switchTab('stakeholders-tab')">Stakeholders</button>
+                    <button class="tab-btn" onclick="switchTab('downloads-tab')">Downloads</button>
+                </div>
+
+                <!-- Projects Tab -->
+                <div id="projects-tab" class="tab-content active">
+                    <h3>Identified Projects</h3>
+                    <div class="table-container">
+                        <table id="projects-table" class="results-table">
+                            <thead>
+                                <tr>
+                                    <th onclick="sortTable('projects-table', 0)">Project Name</th>
+                                    <th onclick="sortTable('projects-table', 1)">Mentions</th>
+                                    <th onclick="sortTable('projects-table', 2)">Confidence</th>
+                                    <th onclick="sortTable('projects-table', 3)">Importance</th>
+                                    <th>Stakeholders</th>
+                                </tr>
+                            </thead>
+                            <tbody id="projects-tbody">
+                                <tr><td colspan="5" class="loading-message">Loading projects...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Stakeholders Tab -->
+                <div id="stakeholders-tab" class="tab-content">
+                    <h3>Key Stakeholders</h3>
+                    <div class="table-container">
+                        <table id="stakeholders-table" class="results-table">
+                            <thead>
+                                <tr>
+                                    <th onclick="sortTable('stakeholders-table', 0)">Name</th>
+                                    <th>Email</th>
+                                    <th onclick="sortTable('stakeholders-table', 2)">Primary Role</th>
+                                    <th onclick="sortTable('stakeholders-table', 3)">Projects</th>
+                                    <th onclick="sortTable('stakeholders-table', 4)">Messages</th>
+                                </tr>
+                            </thead>
+                            <tbody id="stakeholders-tbody">
+                                <tr><td colspan="5" class="loading-message">Loading stakeholders...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Downloads Tab -->
+                <div id="downloads-tab" class="tab-content">
+                    <h3>Download Reports</h3>
+                    <p class="help-text">Export analysis results in various formats</p>
+
+                    <div class="downloads-grid">
+                        <div class="download-item">
+                            <h4>📄 Markdown Report</h4>
+                            <p>Human-readable summary with analysis</p>
+                            <button class="btn btn-secondary" onclick="downloadReport('Q4_2025_Summary.md')">
+                                Download Q4_2025_Summary.md
+                            </button>
+                        </div>
+
+                        <div class="download-item">
+                            <h4>📊 JSON Exports</h4>
+                            <p>Machine-readable structured data</p>
+                            <button class="btn btn-secondary" onclick="downloadReport('aggregated_projects.json')">
+                                Projects JSON
+                            </button>
+                            <button class="btn btn-secondary" onclick="downloadReport('aggregated_stakeholders.json')">
+                                Stakeholders JSON
+                            </button>
+                        </div>
+
+                        <div class="download-item">
+                            <h4>📈 CSV Exports</h4>
+                            <p>Import into Excel or BI tools</p>
+                            <button class="btn btn-secondary" onclick="downloadReport('projects_summary.csv')">
+                                Projects CSV
+                            </button>
+                            <button class="btn btn-secondary" onclick="downloadReport('stakeholders_summary.csv')">
+                                Stakeholders CSV
+                            </button>
+                            <button class="btn btn-secondary" onclick="downloadReport('project_stakeholder_matrix.csv')">
+                                Matrix CSV
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Navigation Buttons -->
+                <div class="button-group">
+                    <button class="btn btn-secondary" onclick="goToPipeline()">← Back to Pipeline</button>
+                    <button class="btn btn-primary" onclick="goToUpload()">Start New Analysis</button>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <p>Sift - Email Intelligence Extraction | <span id="footer-version">v0.1.0</span></p>
+    </footer>
+
+    <!-- Scripts -->
+    <script src="app.js"></script>
+</body>
+</html>
