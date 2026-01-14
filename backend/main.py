@@ -181,16 +181,6 @@ class AggregateStatusResponse(BaseModel):
 # ENDPOINTS
 # ============================================================================
 
-@app.get("/")
-async def root():
-    """Health check endpoint"""
-    return {
-        "name": "Sift Backend",
-        "version": "0.1.0",
-        "status": "running"
-    }
-
-
 @app.post("/upload")
 async def upload_pst_file(file: UploadFile = File(...)):
     """
