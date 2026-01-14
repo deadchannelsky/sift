@@ -12,7 +12,9 @@ from pathlib import Path
 
 from app.models import init_db, get_session, ProcessingJob, Message, Conversation
 from app.pst_parser import PSTParser
+from app.ollama_client import OllamaClient
 from app.utils import logger, get_db_path, ensure_data_dir, BACKEND_DIR
+import json as json_lib
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -30,14 +32,54 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize database on startup
+# Global Ollama client (initialized on startup)
+ollama_client = None
+
+# Initialize database and Ollama on startup
 @app.on_event("startup")
 async def startup_event():
+    global ollama_client
     logger.info("=== Sift Backend Starting ===")
     ensure_data_dir()
+
+    # Initialize database
     db_path = get_db_path()
     init_db(db_path)
     logger.info(f"Database initialized: {db_path}")
+
+    # Initialize Ollama client
+    try:
+        config_path = BACKEND_DIR / "config.json"
+        with open(config_path) as f:
+            config = json_lib.load(f)
+
+        ollama_config = config.get("ollama", {})
+        url = ollama_config.get("url", "http://localhost:11434")
+        model = ollama_config.get("model")
+        timeout = ollama_config.get("timeout_seconds", 30)
+        max_retries = ollama_config.get("max_retries", 3)
+        retry_backoff = ollama_config.get("retry_backoff_ms", 500)
+
+        ollama_client = OllamaClient(
+            url=url,
+            model=model,
+            timeout_seconds=timeout,
+            max_retries=max_retries,
+            retry_backoff_ms=retry_backoff
+        )
+
+        # Test connection
+        if ollama_client.test_connection():
+            # List available models
+            ollama_client.list_models()
+            if model:
+                ollama_client.set_model(model)
+        else:
+            logger.warning("Ollama not available - enrichment will not work")
+
+    except Exception as e:
+        logger.error(f"Error initializing Ollama client: {e}")
+        ollama_client = None
 
 
 # Request/Response models
@@ -254,6 +296,60 @@ async def get_results(job_id: str) -> ResultsResponse:
         raise
     except Exception as e:
         logger.error(f"Error getting results: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/models")
+async def list_models():
+    """List all available Ollama models"""
+    if not ollama_client:
+        raise HTTPException(status_code=503, detail="Ollama not initialized")
+
+    try:
+        models = ollama_client.list_models()
+        return {
+            "available_models": [
+                {
+                    "name": m.name,
+                    "size_gb": round(m.size_gb, 2),
+                    "quantization": m.quantization
+                }
+                for m in models
+            ],
+            "current_model": ollama_client.model
+        }
+    except Exception as e:
+        logger.error(f"Error listing models: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/models/{model_name}")
+async def set_model(model_name: str):
+    """Switch to a different model
+
+    Args:
+        model_name: Name of the model to use (e.g., "granite-4.0-h-tiny")
+
+    Returns:
+        Success status and model info
+    """
+    if not ollama_client:
+        raise HTTPException(status_code=503, detail="Ollama not initialized")
+
+    try:
+        if ollama_client.set_model(model_name):
+            return {
+                "status": "success",
+                "current_model": ollama_client.model,
+                "message": f"Model set to: {model_name}"
+            }
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Model '{model_name}' not found on server"
+            )
+    except Exception as e:
+        logger.error(f"Error setting model: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
