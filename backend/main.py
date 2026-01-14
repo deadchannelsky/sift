@@ -16,6 +16,7 @@ from app.ollama_client import OllamaClient
 from app.prompt_manager import PromptManager
 from app.enrichment import EnrichmentEngine
 from app.aggregator import AggregationEngine
+from app.reporter import ReporterEngine
 from app.utils import logger, get_db_path, ensure_data_dir, BACKEND_DIR
 import json as json_lib
 
@@ -837,6 +838,15 @@ def _aggregate_data_task(job_id: str):
         output_path.mkdir(parents=True, exist_ok=True)
 
         aggregator.write_json_outputs(str(output_path))
+
+        # Generate Markdown and CSV reports
+        try:
+            reporter = ReporterEngine(config)
+            reporter.generate_all_reports(str(output_path), str(output_path))
+            logger.info("Generated Markdown and CSV reports")
+        except Exception as e:
+            logger.error(f"Report generation failed: {e}")
+            # Don't fail the whole job if reporting fails
 
         # Update job with results
         job.status = "completed"

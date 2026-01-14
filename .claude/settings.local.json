@@ -11,7 +11,9 @@
       "Bash(git commit:*)",
       "WebFetch(domain:libraries.io)",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "Bash(ls -la \"C:\\\\Users\\\\JasonTyler\\\\Documents\\\\PersonalCode\\\\sift\\\\prompts\"\" 2>/dev/null || echo \"Checking prompts... \")"
+      "Bash(ls -la \"C:\\\\Users\\\\JasonTyler\\\\Documents\\\\PersonalCode\\\\sift\\\\prompts\"\" 2>/dev/null || echo \"Checking prompts... \")",
+      "Bash(python tests/test_aggregate.py:*)",
+      "Bash(python tests/test_reporting.py:*)"
     ]
   }
 }
