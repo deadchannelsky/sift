@@ -51,11 +51,12 @@ async def startup_event():
     init_db(db_path)
     logger.info(f"Database initialized: {db_path}")
 
-    # Load config
+    # Load config (from root sift directory, not backend/)
     try:
-        config_path = BACKEND_DIR / "config.json"
+        config_path = BACKEND_DIR.parent / "config.json"  # Root of sift/
         with open(config_path) as f:
             config = json_lib.load(f)
+        logger.info(f"✅ Loaded config from: {config_path}")
     except Exception as e:
         logger.error(f"Error loading config: {e}")
         config = {}

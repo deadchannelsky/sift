@@ -70,10 +70,10 @@ class PromptManager:
         """Initialize PromptManager
 
         Args:
-            prompts_dir: Directory containing prompt JSON files (default: backend/prompts/)
+            prompts_dir: Directory containing prompt JSON files (default: root_sift/prompts/)
         """
         if prompts_dir is None:
-            prompts_dir = BACKEND_DIR / "prompts"
+            prompts_dir = BACKEND_DIR.parent / "prompts"  # Root of sift/
 
         self.prompts_dir = prompts_dir
         self.prompts: Dict[str, Prompt] = {}
