@@ -10,6 +10,7 @@ Handles:
 """
 import json
 import time
+from datetime import datetime
 from typing import List, Dict, Optional
 from sqlalchemy.orm import Session
 
@@ -231,7 +232,7 @@ class EnrichmentEngine:
 
                 # Update message status
                 message.enrichment_status = "completed"
-                message.processed_at = time.strftime('%Y-%m-%d %H:%M:%S')
+                message.processed_at = datetime.utcnow()
                 self.db.commit()
 
                 self.stats["messages_processed"] += 1

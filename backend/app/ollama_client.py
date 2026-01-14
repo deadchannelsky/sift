@@ -126,6 +126,38 @@ class OllamaClient:
         logger.info(f"✅ Model set to: {model_name}")
         return True
 
+    def test_model(self) -> bool:
+        """Test if selected model is available and working
+
+        Returns:
+            True if model is available and responsive
+        """
+        if not self.model:
+            logger.error("No model selected")
+            return False
+
+        try:
+            # Try a simple generation to verify model is loaded
+            response = requests.post(
+                f"{self.url}/api/generate",
+                json={
+                    "model": self.model,
+                    "prompt": "test",
+                    "stream": False
+                },
+                timeout=5
+            )
+            if response.status_code == 200:
+                logger.info(f"✅ Model '{self.model}' is available and responding")
+                return True
+            else:
+                logger.error(f"❌ Model test failed: {response.status_code}")
+                logger.error(f"Response: {response.text[:200]}")
+                return False
+        except Exception as e:
+            logger.error(f"❌ Model test error: {e}")
+            return False
+
     def generate(self, prompt: str, stream: bool = False) -> str:
         """Generate response from Ollama
 

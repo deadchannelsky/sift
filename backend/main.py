@@ -85,6 +85,10 @@ async def startup_event():
             ollama_client.list_models()
             if model:
                 ollama_client.set_model(model)
+                # Test if model is loaded and responding
+                if not ollama_client.test_model():
+                    logger.warning(f"⚠️  Model '{model}' not responding. You may need to pull it on the server:")
+                    logger.warning(f"    ollama pull {model}")
         else:
             logger.warning("Ollama not available - enrichment will not work")
 
