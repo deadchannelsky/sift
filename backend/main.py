@@ -10,9 +10,11 @@ import uuid
 import os
 from pathlib import Path
 
-from app.models import init_db, get_session, ProcessingJob, Message, Conversation
+from app.models import init_db, get_session, ProcessingJob, Message, Conversation, Extraction
 from app.pst_parser import PSTParser
 from app.ollama_client import OllamaClient
+from app.prompt_manager import PromptManager
+from app.enrichment import EnrichmentEngine
 from app.utils import logger, get_db_path, ensure_data_dir, BACKEND_DIR
 import json as json_lib
 
@@ -32,13 +34,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global Ollama client (initialized on startup)
+# Global objects (initialized on startup)
 ollama_client = None
+prompt_manager = None
+config = {}
 
 # Initialize database and Ollama on startup
 @app.on_event("startup")
 async def startup_event():
-    global ollama_client
+    global ollama_client, prompt_manager, config
     logger.info("=== Sift Backend Starting ===")
     ensure_data_dir()
 
@@ -47,11 +51,17 @@ async def startup_event():
     init_db(db_path)
     logger.info(f"Database initialized: {db_path}")
 
-    # Initialize Ollama client
+    # Load config
     try:
         config_path = BACKEND_DIR / "config.json"
         with open(config_path) as f:
             config = json_lib.load(f)
+    except Exception as e:
+        logger.error(f"Error loading config: {e}")
+        config = {}
+
+    # Initialize Ollama client
+    try:
 
         ollama_config = config.get("ollama", {})
         url = ollama_config.get("url", "http://localhost:11434")
@@ -81,6 +91,17 @@ async def startup_event():
         logger.error(f"Error initializing Ollama client: {e}")
         ollama_client = None
 
+    # Initialize PromptManager
+    try:
+        prompt_manager = PromptManager()
+        if prompt_manager.prompts:
+            logger.info(f"✅ Loaded {len(prompt_manager.prompts)} prompts for tasks: {', '.join(prompt_manager.list_tasks())}")
+        else:
+            logger.warning("No prompts found - enrichment will not work")
+    except Exception as e:
+        logger.error(f"Error initializing PromptManager: {e}")
+        prompt_manager = None
+
 
 # Request/Response models
 class ParseRequest(BaseModel):
@@ -107,6 +128,23 @@ class ResultsResponse(BaseModel):
     message_count: int
     conversation_count: int
     errors: int
+
+
+class EnrichRequest(BaseModel):
+    """Request to start enrichment job"""
+    max_messages: Optional[int] = None  # Limit messages for testing (None = all)
+    batch_size: int = 5  # Messages per batch
+
+
+class EnrichStatusResponse(BaseModel):
+    """Status of enrichment job"""
+    job_id: str
+    status: str  # pending, processing, completed, failed
+    total_messages: int
+    processed_messages: int
+    current_task: Optional[str]
+    progress_percent: float
+    error: Optional[str] = None
 
 
 # ============================================================================
@@ -406,6 +444,106 @@ async def get_stats():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/enrich")
+async def start_enrichment(request: EnrichRequest, background_tasks: BackgroundTasks = None):
+    """Start enrichment job for parsed messages
+
+    Args:
+        request: EnrichRequest with max_messages and batch_size
+        background_tasks: FastAPI background tasks
+
+    Returns:
+        Job ID and status
+    """
+    if not ollama_client:
+        raise HTTPException(status_code=503, detail="Ollama not initialized")
+
+    if not prompt_manager:
+        raise HTTPException(status_code=503, detail="PromptManager not initialized")
+
+    if not ollama_client.model:
+        raise HTTPException(status_code=400, detail="No model selected. Use /models/{model_name} to select a model.")
+
+    try:
+        db_path = get_db_path()
+        engine = init_db(db_path)
+        session = get_session(engine)
+
+        # Count pending messages
+        pending_count = session.query(Message).filter_by(enrichment_status="pending").count()
+
+        if pending_count == 0:
+            raise HTTPException(status_code=400, detail="No messages to enrich")
+
+        # Create job record
+        job_id = str(uuid.uuid4())[:8]
+        job = ProcessingJob(
+            job_id=job_id,
+            pst_filename="enrichment_job",
+            status="queued",
+            total_messages=min(pending_count, request.max_messages) if request.max_messages else pending_count
+        )
+        session.add(job)
+        session.commit()
+
+        # Queue background task
+        if background_tasks:
+            background_tasks.add_task(
+                _enrich_messages_task,
+                job_id,
+                request.max_messages,
+                request.batch_size
+            )
+
+        return {
+            "job_id": job_id,
+            "status": "queued",
+            "message": f"Enrichment job queued. Processing {job.total_messages} messages"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error starting enrichment: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/enrich/{job_id}/status")
+async def get_enrichment_status(job_id: str) -> EnrichStatusResponse:
+    """Check enrichment job status"""
+    try:
+        db_path = get_db_path()
+        engine = init_db(db_path)
+        session = get_session(engine)
+
+        job = session.query(ProcessingJob).filter_by(job_id=job_id).first()
+
+        if not job:
+            raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+
+        progress_percent = (
+            (job.processed_messages / job.total_messages * 100)
+            if job.total_messages > 0
+            else 0
+        )
+
+        return EnrichStatusResponse(
+            job_id=job.job_id,
+            status=job.status,
+            total_messages=job.total_messages,
+            processed_messages=job.processed_messages,
+            current_task=job.current_task,
+            progress_percent=progress_percent,
+            error=job.error_message
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting enrichment status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ============================================================================
 # BACKGROUND TASKS
 # ============================================================================
@@ -464,6 +602,86 @@ def _parse_pst_task(
             job.status = "failed"
             job.error_message = str(e)
             session.commit()
+
+
+def _enrich_messages_task(job_id: str, max_messages: Optional[int] = None, batch_size: int = 5):
+    """Background task to enrich messages with LLM"""
+    try:
+        logger.info(f"Starting enrichment job: {job_id}")
+
+        # Get database session
+        db_path = get_db_path()
+        engine = init_db(db_path)
+        session = get_session(engine)
+
+        # Get job and update status
+        job = session.query(ProcessingJob).filter_by(job_id=job_id).first()
+        if not job:
+            logger.error(f"Job not found: {job_id}")
+            return
+
+        job.status = "processing"
+        session.commit()
+
+        # Get pending messages (limited by max_messages if specified)
+        query = session.query(Message).filter_by(enrichment_status="pending")
+        if max_messages:
+            query = query.limit(max_messages)
+
+        pending_messages = query.all()
+        total = len(pending_messages)
+
+        if total == 0:
+            logger.info("No messages to enrich")
+            job.status = "completed"
+            job.processed_messages = 0
+            session.commit()
+            return
+
+        logger.info(f"Processing {total} messages")
+
+        # Initialize enrichment engine
+        engine_for_enrichment = EnrichmentEngine(ollama_client, prompt_manager, session)
+
+        # Process in batches
+        for batch_idx in range(0, total, batch_size):
+            batch = pending_messages[batch_idx:batch_idx + batch_size]
+            message_ids = [msg.id for msg in batch]
+
+            job.current_task = f"batch_{batch_idx // batch_size + 1}"
+            session.commit()
+
+            # Enrich batch
+            engine_for_enrichment.enrich_batch(message_ids, config, show_progress=False)
+
+            # Update job progress
+            job.processed_messages = batch_idx + len(batch)
+            session.commit()
+
+            progress = (job.processed_messages / total) * 100
+            logger.info(f"Enrichment progress: {progress:.1f}% ({job.processed_messages}/{total})")
+
+        # Job complete
+        job.status = "completed"
+        job.processed_messages = total
+        job.current_task = None
+        session.commit()
+
+        logger.info(f"Enrichment complete: {total} messages processed")
+
+    except Exception as e:
+        logger.error(f"Error in enrichment task: {e}")
+        try:
+            db_path = get_db_path()
+            engine = init_db(db_path)
+            session = get_session(engine)
+            job = session.query(ProcessingJob).filter_by(job_id=job_id).first()
+            if job:
+                job.status = "failed"
+                job.error_message = str(e)
+                session.commit()
+        except:
+            pass
 
 
 # ============================================================================
