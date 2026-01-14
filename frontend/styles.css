@@ -855,3 +855,45 @@ body {
         padding: 8px 10px;
     }
 }
+
+/* File Selection List */
+.file-list {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+}
+
+.file-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px;
+    border: 1px solid var(--border-light);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    transition: all 0.2s ease;
+}
+
+.file-item:hover {
+    background: var(--bg-hover);
+    border-color: var(--primary);
+}
+
+.file-item-info {
+    flex-grow: 1;
+}
+
+.file-item-name {
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.file-item-meta {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.file-item-action {
+    margin-left: 15px;
+}

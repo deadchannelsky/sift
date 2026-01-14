@@ -44,6 +44,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     setupEventListeners();
     await checkBackendStatus();
     loadModels();
+    loadPSTFiles();  // Load list of previously uploaded PST files
 });
 
 function setupEventListeners() {
@@ -115,6 +116,7 @@ function clearFile() {
     document.getElementById('upload-zone').style.display = 'block';
     document.getElementById('config-section').style.display = 'none';
     document.getElementById('upload-btn').style.display = 'none';
+    document.getElementById('upload-btn').textContent = 'Upload & Parse';  // Reset button text
 }
 
 function showUploadButton() {
@@ -138,8 +140,19 @@ async function startUpload() {
     uploadProgress.style.display = 'block';
 
     try {
-        // Upload file
-        const uploadResult = await uploadFile(file);
+        let filename;
+
+        // Check if this is an existing file or a new upload
+        if (file.isExisting) {
+            // Existing file - skip upload
+            filename = file.name;
+            document.getElementById('upload-percent').textContent = '100%';
+            updateProgressBar('upload-bar', 100);
+        } else {
+            // New file - upload it
+            const uploadResult = await uploadFile(file);
+            filename = uploadResult.filename;
+        }
 
         // Start parsing
         const dateStart = document.getElementById('date-start').value;
@@ -150,7 +163,7 @@ async function startUpload() {
             : null;
 
         const parseResult = await apiCall('POST', '/parse', {
-            pst_filename: uploadResult.filename,
+            pst_filename: filename,
             date_start: dateStart,
             date_end: dateEnd,
             min_conversation_messages: minMessages,
@@ -565,7 +578,84 @@ async function downloadReport(filename) {
 
 function goToUpload() {
     showPage('upload-page');
-    clearFile();
+    resetUploadPage();
+    loadPSTFiles();
+}
+
+function resetUploadPage() {
+    // Clear all UI state
+    selectedFile = null;
+    document.getElementById('file-input').value = '';
+    document.getElementById('file-info').style.display = 'none';
+    document.getElementById('upload-zone').style.display = 'block';
+    document.getElementById('config-section').style.display = 'none';
+    document.getElementById('upload-btn').style.display = 'none';
+    document.getElementById('upload-progress').style.display = 'none';
+    document.getElementById('upload-error').style.display = 'none';
+    document.getElementById('upload-bar').style.width = '0%';
+    document.getElementById('upload-percent').textContent = '0%';
+}
+
+async function loadPSTFiles() {
+    try {
+        const result = await apiCall('GET', '/pst-files');
+        const filesList = result.files || [];
+
+        const existingFilesSection = document.getElementById('existing-files-section');
+        const existingFilesList = document.getElementById('existing-files-list');
+
+        if (filesList.length === 0) {
+            existingFilesSection.style.display = 'none';
+            return;
+        }
+
+        // Show the section
+        existingFilesSection.style.display = 'block';
+
+        // Clear existing items
+        existingFilesList.innerHTML = '';
+
+        // Add each file as a selectable item
+        filesList.forEach(file => {
+            const fileItem = document.createElement('div');
+            fileItem.className = 'file-item';
+            fileItem.innerHTML = `
+                <div class="file-item-info">
+                    <div class="file-item-name">${file.filename}</div>
+                    <div class="file-item-meta">${file.size_mb} MB • Uploaded ${new Date(file.uploaded_at).toLocaleDateString()}</div>
+                </div>
+                <div class="file-item-action">
+                    <button class="btn btn-secondary btn-small" onclick="selectExistingFile('${file.filename}')">
+                        Select
+                    </button>
+                </div>
+            `;
+            existingFilesList.appendChild(fileItem);
+        });
+
+    } catch (error) {
+        console.error('Failed to load PST files:', error);
+        // Silently fail - don't show error if files can't be loaded
+    }
+}
+
+function selectExistingFile(filename) {
+    // Create a synthetic file object to mimic uploaded file
+    // We'll store the filename and mark it as existing
+    selectedFile = {
+        name: filename,
+        isExisting: true
+    };
+
+    // Display file info
+    const fileInfo = document.getElementById('file-info');
+    document.getElementById('file-name').textContent = filename;
+    document.getElementById('file-size').textContent = '(existing file)';
+    fileInfo.style.display = 'block';
+    document.getElementById('upload-zone').style.display = 'none';
+    document.getElementById('config-section').style.display = 'block';
+    document.getElementById('upload-btn').textContent = 'Parse Selected File';
+    document.getElementById('upload-btn').style.display = 'inline-block';
 }
 
 function goToPipeline() {

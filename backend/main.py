@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional
+from datetime import datetime
 import uuid
 import os
 from pathlib import Path
@@ -257,6 +258,45 @@ async def upload_pst_file(file: UploadFile = File(...)):
     except Exception as e:
         logger.error(f"Upload error: {e}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+
+@app.get("/pst-files")
+async def list_pst_files():
+    """
+    List all PST files available in the data directory
+
+    Returns:
+        {
+            "files": [
+                {"filename": "example.pst", "size_bytes": 1024000, "size_mb": 1.0, "uploaded_at": "2025-01-14T12:34:56"},
+                ...
+            ]
+        }
+    """
+    try:
+        data_dir = Path("./data")
+
+        if not data_dir.exists():
+            return {"files": []}
+
+        # Find all .pst files in data directory
+        pst_files = list(data_dir.glob("*.pst"))
+
+        files_list = []
+        for pst_file in sorted(pst_files, key=lambda x: x.stat().st_mtime, reverse=True):
+            stat = pst_file.stat()
+            files_list.append({
+                "filename": pst_file.name,
+                "size_bytes": stat.st_size,
+                "size_mb": round(stat.st_size / (1024 ** 2), 2),
+                "uploaded_at": datetime.fromtimestamp(stat.st_mtime).isoformat()
+            })
+
+        return {"files": files_list}
+
+    except Exception as e:
+        logger.error(f"Error listing PST files: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/parse")

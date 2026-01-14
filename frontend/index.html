@@ -25,8 +25,16 @@
         <!-- ========== PAGE 1: UPLOAD ========== -->
         <section id="upload-page" class="page active">
             <div class="page-content">
-                <h2>Upload PST File</h2>
-                <p class="help-text">Upload an Outlook PST file to extract email intelligence. Supports files up to 10GB.</p>
+                <h2>Upload or Select PST File</h2>
+                <p class="help-text">Upload a new Outlook PST file or select a previously uploaded file. Supports files up to 10GB.</p>
+
+                <!-- Existing Files Selection -->
+                <div id="existing-files-section" style="margin-bottom: 30px; display: none;">
+                    <h3>Recently Uploaded Files</h3>
+                    <div id="existing-files-list" class="form-group">
+                        <!-- Files will be populated here -->
+                    </div>
+                </div>
 
                 <!-- Upload Zone -->
                 <div class="upload-zone" id="upload-zone">
