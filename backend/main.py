@@ -387,6 +387,50 @@ async def get_status(job_id: str) -> StatusResponse:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/jobs/{job_id}/cancel")
+async def cancel_job(job_id: str):
+    """
+    Cancel a running job (parsing, enrichment, or aggregation)
+
+    Args:
+        job_id: Job ID to cancel
+
+    Returns:
+        {
+            "job_id": "abc123",
+            "status": "cancelled",
+            "message": "Job cancellation requested"
+        }
+    """
+    try:
+        db_path = get_db_path()
+        engine = init_db(db_path)
+        session = get_session(engine)
+
+        job = session.query(ProcessingJob).filter_by(job_id=job_id).first()
+
+        if not job:
+            raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+
+        # Mark job for cancellation
+        job.cancelled = True
+        session.commit()
+
+        logger.info(f"Cancellation requested for job: {job_id}")
+
+        return {
+            "job_id": job.job_id,
+            "status": job.status,
+            "message": "Job cancellation requested"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error cancelling job: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/results/{job_id}")
 async def get_results(job_id: str) -> ResultsResponse:
     """
@@ -906,6 +950,15 @@ def _enrich_messages_task(job_id: str, max_messages: Optional[int] = None, batch
 
         # Process in batches
         for batch_idx in range(0, total, batch_size):
+            # Check if cancellation was requested
+            job = session.query(ProcessingJob).filter_by(job_id=job_id).first()
+            if job.cancelled:
+                logger.info(f"Enrichment job cancelled: {job_id}")
+                job.status = "cancelled"
+                job.current_task = None
+                session.commit()
+                return
+
             batch = pending_messages[batch_idx:batch_idx + batch_size]
             message_ids = [msg.id for msg in batch]
 
@@ -964,6 +1017,14 @@ def _aggregate_data_task(job_id: str):
         job.status = "processing"
         job.current_task = "aggregation"
         session.commit()
+
+        # Check if cancellation was requested
+        if job.cancelled:
+            logger.info(f"Aggregation job cancelled: {job_id}")
+            job.status = "cancelled"
+            job.current_task = None
+            session.commit()
+            return
 
         # Initialize aggregation engine
         aggregator = AggregationEngine(session, config)

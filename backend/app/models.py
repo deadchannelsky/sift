@@ -128,6 +128,7 @@ class ProcessingJob(Base):
     total_messages = Column(Integer, default=0)
     processed_messages = Column(Integer, default=0)
     current_task = Column(String(100), nullable=True)  # task_a, task_b, etc.
+    cancelled = Column(Boolean, default=False)  # Flag to signal cancellation from UI
 
     # Results
     error_message = Column(Text, nullable=True)

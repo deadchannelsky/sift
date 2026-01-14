@@ -342,6 +342,25 @@ function updateJobCard(jobType, status) {
             document.getElementById('start-aggregate-btn').style.display = 'inline-block';
         }
     }
+
+    // Show/hide cancel button based on job status
+    const cancelBtn = document.getElementById(`cancel-${jobType}-btn`);
+    if (cancelBtn) {
+        // Show cancel button only when job is actively processing
+        if (status.status === 'processing' || status.status === 'queued') {
+            cancelBtn.style.display = 'inline-block';
+        } else {
+            cancelBtn.style.display = 'none';
+        }
+    }
+
+    // Stop polling if job is complete, failed, or cancelled
+    if (status.status === 'completed' || status.status === 'failed' || status.status === 'cancelled') {
+        if (pollIntervals[jobType]) {
+            clearInterval(pollIntervals[jobType]);
+            pollIntervals[jobType] = null;
+        }
+    }
 }
 
 function handleJobCompletion(jobType, status) {
@@ -389,6 +408,24 @@ async function startAggregation() {
 
     } catch (error) {
         showError('aggregate-error', error.message);
+    }
+}
+
+async function cancelJob(jobType) {
+    const jobTypeMap = { parse: 'parse', enrich: 'enrich', aggregate: 'aggregate' };
+    const jobId = currentJobIds[jobTypeMap[jobType]];
+
+    if (!jobId) {
+        showError(`${jobType}-error`, `No ${jobType} job to cancel`);
+        return;
+    }
+
+    try {
+        await apiCall('POST', `/jobs/${jobId}/cancel`);
+        showError(`${jobType}-error`, `${jobType.charAt(0).toUpperCase() + jobType.slice(1)} cancelled by user`);
+        // The job status will update to "cancelled" on next poll
+    } catch (error) {
+        showError(`${jobType}-error`, `Failed to cancel: ${error.message}`);
     }
 }
 
