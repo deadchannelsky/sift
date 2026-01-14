@@ -265,8 +265,8 @@ class PSTParser:
                 conversation_topic = f"Message from {self._to_str(sender_name or sender_email)}"
             conversation_topic = self._to_str(conversation_topic)
 
-            # Generate unique message ID
-            msg_id = self._generate_msg_id(sender_email, subject, delivery_date)
+            # Generate unique message ID (include body to distinguish similar emails)
+            msg_id = self._generate_msg_id(sender_email, subject, delivery_date, body)
 
             return {
                 "msg_id": msg_id,
@@ -288,13 +288,23 @@ class PSTParser:
             logger.warning(f"Error extracting message fields: {e}")
             return None
 
-    def _generate_msg_id(self, sender: str, subject: str, date) -> str:
-        """Generate unique message ID"""
+    def _generate_msg_id(self, sender: str, subject: str, date, body: str = "") -> str:
+        """Generate unique message ID
+
+        Uses sender, subject, date, and body to create a more unique identifier.
+        This helps detect true duplicates vs. similar emails.
+        """
         # Ensure all values are strings before encoding
         sender_str = self._to_str(sender)
         subject_str = self._to_str(subject)
         date_str = self._to_str(date)
-        combined = f"{sender_str}:{subject_str}:{date_str}".encode('utf-8', errors='ignore')
+        body_str = self._to_str(body)
+
+        # Include first 500 chars of body to distinguish similar emails
+        # Full body would be too much, 500 chars is a good balance
+        body_prefix = body_str[:500] if body_str else ""
+
+        combined = f"{sender_str}:{subject_str}:{date_str}:{body_prefix}".encode('utf-8', errors='ignore')
         return hashlib.sha256(combined).hexdigest()[:32]
 
     def _is_in_date_range(self, delivery_date, date_start, date_end) -> bool:
@@ -332,8 +342,19 @@ class PSTParser:
 
             # Add messages
             stored = 0
+            duplicates = 0
             for idx, msg_data in enumerate(messages):
                 try:
+                    # Check if message already exists (duplicate detection)
+                    existing_msg = self.db_session.query(Message).filter_by(
+                        msg_id=msg_data["msg_id"]
+                    ).first()
+
+                    if existing_msg:
+                        logger.info(f"Skipping duplicate message: {msg_data['subject'][:50]}")
+                        duplicates += 1
+                        continue
+
                     msg = Message(
                         msg_id=msg_data["msg_id"],
                         conversation_id=conv.id,
@@ -358,6 +379,9 @@ class PSTParser:
                     self.error_count += 1
 
             self.db_session.commit()
+
+            if duplicates > 0:
+                logger.info(f"  Skipped {duplicates} duplicate messages in conversation")
             logger.info(f"Stored conversation: {topic[:60]} ({len(messages)} messages)")
             return stored
 
