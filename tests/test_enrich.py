@@ -1,12 +1,12 @@
 """
 Test enrichment pipeline
 
-Run enrichment on sample messages and verify extraction results
+Run enrichment on sample messages and verify extraction results.
+Model is configured in config.json (currently granite-4.0-h-tiny).
 
 Usage:
-    python test_enrich.py              # Test with default settings
+    python test_enrich.py              # Test with all pending messages
     python test_enrich.py 10           # Test with max 10 messages
-    python test_enrich.py 10 granite   # Test with specific model
 """
 import requests
 import json
@@ -16,33 +16,22 @@ import sys
 BASE_URL = 'http://localhost:5000'
 
 def test_ollama_ready():
-    """Verify Ollama and model are ready"""
+    """Verify Ollama is running and accessible"""
     print("\n" + "="*80)
-    print(" 1. CHECKING OLLAMA & MODEL")
+    print(" 1. CHECKING OLLAMA CONNECTION")
     print("="*80)
 
     try:
-        r = requests.get(f'{BASE_URL}/models')
+        r = requests.get(f'{BASE_URL}/')
         if r.status_code != 200:
-            print(f"❌ Cannot access models: {r.status_code}")
-            print(f"   {r.json()}")
+            print(f"❌ Backend not responding: {r.status_code}")
             return False
 
         data = r.json()
-        current_model = data.get('current_model')
-        models = data.get('available_models', [])
-
-        if not current_model:
-            print("❌ No model selected!")
-            if models:
-                print("\nAvailable models:")
-                for m in models:
-                    print(f"  • {m['name']} ({m['size_gb']} GB)")
-                print("\nSelect one with: curl -X POST http://localhost:5000/models/{model_name}")
-            return False
-
-        print(f"✅ Current model: {current_model}")
-        print(f"✅ Available models: {len(models)}")
+        print(f"✅ Backend: {data.get('name')} v{data.get('version')}")
+        print(f"✅ Status: {data.get('status')}")
+        print(f"\n📝 Note: Model is set in config.json (granite-4.0-h-tiny)")
+        print(f"   Model switching can be added as enhancement later")
         return True
 
     except Exception as e:
@@ -209,27 +198,13 @@ def main():
 
     # Parse arguments
     max_messages = None
-    model_to_select = None
 
     if len(sys.argv) > 1:
         try:
             max_messages = int(sys.argv[1])
         except ValueError:
-            model_to_select = sys.argv[1]
-
-    if len(sys.argv) > 2:
-        model_to_select = sys.argv[2]
-
-    if model_to_select:
-        print(f"\nAttempting to select model: {model_to_select}")
-        try:
-            r = requests.post(f'{BASE_URL}/models/{model_to_select}')
-            if r.status_code == 200:
-                print(f"✅ Model selected: {model_to_select}")
-            else:
-                print(f"⚠️  Could not select model: {r.json()}")
-        except Exception as e:
-            print(f"⚠️  Error selecting model: {e}")
+            print(f"Usage: python test_enrich.py [max_messages]")
+            print(f"  Example: python test_enrich.py 10")
 
     # Run tests
     if not test_ollama_ready():
