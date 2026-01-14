@@ -1,7 +1,7 @@
 {
   "ollama": {
     "url": "http://localhost:11434",
-    "model": "granite-4.0-h-tiny",
+    "model": "hf.co/ibm-granite/granite-4.0-h-tiny-GGUF:Q8_0",
     "timeout_seconds": 30,
     "max_retries": 3,
     "retry_backoff_ms": 500
