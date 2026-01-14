@@ -24,7 +24,7 @@ def test_health_check():
         return False
 
 
-def test_parse_pst(pst_filename='test.pst', date_start='2025-10-01', date_end='2025-12-31'):
+def test_parse_pst(pst_filename='test.pst', date_start='2025-10-01', date_end='2025-12-31', max_messages=None):
     """Test PST parsing endpoint"""
     print("\n=== 2. Parse PST File ===")
     try:
@@ -34,6 +34,9 @@ def test_parse_pst(pst_filename='test.pst', date_start='2025-10-01', date_end='2
             'date_end': date_end,
             'min_conversation_messages': 3
         }
+        if max_messages:
+            payload['max_messages'] = max_messages
+            print(f"Testing with max_messages limit: {max_messages}")
         print(f"Sending: {json.dumps(payload, indent=2)}")
 
         r = requests.post(f'{BASE_URL}/parse', json=payload)
@@ -153,7 +156,7 @@ def test_results(job_id):
         return False
 
 
-def main():
+def main(max_messages=None):
     """Run all tests"""
     print("=" * 60)
     print("SIFT BACKEND - INTEGRATION TESTS")
@@ -163,6 +166,8 @@ def main():
     print("  1. SSH tunnel active: ssh -L 5000:localhost:5000 user@server")
     print("  2. Backend running: python main.py")
     print("  3. PST file on server: /opt/sift/data/test.pst")
+    if max_messages:
+        print(f"\nTesting with max_messages limit: {max_messages}")
     print("\n" + "=" * 60)
 
     # Run tests
@@ -171,7 +176,7 @@ def main():
     results['health'] = test_health_check()
 
     if results['health']:
-        job_id = test_parse_pst()
+        job_id = test_parse_pst(max_messages=max_messages)
         results['parse'] = job_id is not None
 
         if job_id:
@@ -213,5 +218,17 @@ def main():
 
 if __name__ == '__main__':
     import sys
-    success = main()
+
+    # Parse command-line arguments for max_messages
+    max_messages = None
+    if len(sys.argv) > 1:
+        try:
+            max_messages = int(sys.argv[1])
+            print(f"Using max_messages limit: {max_messages}\n")
+        except ValueError:
+            print("Usage: python test.py [max_messages]")
+            print("  Example: python test.py 100")
+            sys.exit(1)
+
+    success = main(max_messages=max_messages)
     sys.exit(0 if success else 1)
