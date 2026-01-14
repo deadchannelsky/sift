@@ -15,6 +15,7 @@ from app.pst_parser import PSTParser
 from app.ollama_client import OllamaClient
 from app.prompt_manager import PromptManager
 from app.enrichment import EnrichmentEngine
+from app.aggregator import AggregationEngine
 from app.utils import logger, get_db_path, ensure_data_dir, BACKEND_DIR
 import json as json_lib
 
@@ -148,6 +149,23 @@ class EnrichStatusResponse(BaseModel):
     total_messages: int
     processed_messages: int
     current_task: Optional[str]
+    progress_percent: float
+    error: Optional[str] = None
+
+
+class AggregateRequest(BaseModel):
+    """Request to start aggregation"""
+    output_formats: list = ["json"]
+
+
+class AggregateStatusResponse(BaseModel):
+    """Status of aggregation job"""
+    job_id: str
+    status: str  # pending, processing, completed, failed
+    total_messages: int
+    processed_messages: int
+    projects_found: int
+    stakeholders_found: int
     progress_percent: float
     error: Optional[str] = None
 
@@ -549,6 +567,104 @@ async def get_enrichment_status(job_id: str) -> EnrichStatusResponse:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/aggregate")
+async def start_aggregation(request: AggregateRequest, background_tasks: BackgroundTasks = None):
+    """Start aggregation job to cluster projects and deduplicate stakeholders
+
+    Args:
+        request: AggregateRequest with output formats
+        background_tasks: FastAPI background tasks
+
+    Returns:
+        Job ID and status
+    """
+    try:
+        db_path = get_db_path()
+        engine = init_db(db_path)
+        session = get_session(engine)
+
+        # Count completed messages
+        completed_count = session.query(Message).filter_by(enrichment_status="completed").count()
+
+        if completed_count == 0:
+            raise HTTPException(status_code=400, detail="No enriched messages to aggregate")
+
+        # Create job record
+        job_id = str(uuid.uuid4())[:8]
+        job = ProcessingJob(
+            job_id=job_id,
+            pst_filename="aggregation_job",
+            status="queued",
+            total_messages=completed_count
+        )
+        session.add(job)
+        session.commit()
+
+        # Queue background task
+        if background_tasks:
+            background_tasks.add_task(_aggregate_data_task, job_id)
+
+        return {
+            "job_id": job_id,
+            "status": "queued",
+            "message": f"Aggregation job queued. Processing {completed_count} enriched messages"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error starting aggregation: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/aggregate/{job_id}/status")
+async def get_aggregation_status(job_id: str) -> AggregateStatusResponse:
+    """Check aggregation job status"""
+    try:
+        db_path = get_db_path()
+        engine = init_db(db_path)
+        session = get_session(engine)
+
+        job = session.query(ProcessingJob).filter_by(job_id=job_id).first()
+
+        if not job:
+            raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+
+        progress_percent = (
+            (job.processed_messages / job.total_messages * 100)
+            if job.total_messages > 0
+            else 0
+        )
+
+        # Parse projects/stakeholders counts from error_message field (used to store extra data)
+        projects_found = 0
+        stakeholders_found = 0
+        if job.error_message and job.status == "completed":
+            try:
+                stats = json_lib.loads(job.error_message)
+                projects_found = stats.get("projects_found", 0)
+                stakeholders_found = stats.get("stakeholders_found", 0)
+            except:
+                pass
+
+        return AggregateStatusResponse(
+            job_id=job.job_id,
+            status=job.status,
+            total_messages=job.total_messages,
+            processed_messages=job.processed_messages,
+            projects_found=projects_found,
+            stakeholders_found=stakeholders_found,
+            progress_percent=progress_percent,
+            error=None if job.status != "failed" else job.error_message
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting aggregation status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ============================================================================
 # BACKGROUND TASKS
 # ============================================================================
@@ -676,6 +792,73 @@ def _enrich_messages_task(job_id: str, max_messages: Optional[int] = None, batch
 
     except Exception as e:
         logger.error(f"Error in enrichment task: {e}")
+        try:
+            db_path = get_db_path()
+            engine = init_db(db_path)
+            session = get_session(engine)
+            job = session.query(ProcessingJob).filter_by(job_id=job_id).first()
+            if job:
+                job.status = "failed"
+                job.error_message = str(e)
+                session.commit()
+        except:
+            pass
+
+
+def _aggregate_data_task(job_id: str):
+    """Background task to aggregate projects and stakeholders"""
+    try:
+        logger.info(f"Starting aggregation job: {job_id}")
+
+        # Get database session
+        db_path = get_db_path()
+        engine = init_db(db_path)
+        session = get_session(engine)
+
+        # Update job status
+        job = session.query(ProcessingJob).filter_by(job_id=job_id).first()
+        if not job:
+            logger.error(f"Job not found: {job_id}")
+            return
+
+        job.status = "processing"
+        job.current_task = "aggregation"
+        session.commit()
+
+        # Initialize aggregation engine
+        aggregator = AggregationEngine(session, config)
+
+        # Run aggregation
+        stats = aggregator.run_aggregation()
+
+        # Write JSON outputs
+        output_dir = config.get("output", {}).get("dir", "./data")
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+
+        aggregator.write_json_outputs(str(output_path))
+
+        # Update job with results
+        job.status = "completed"
+        job.processed_messages = stats["messages_processed"]
+        job.current_task = None
+
+        # Store stats in error_message field (hack but works)
+        job.error_message = json_lib.dumps({
+            "projects_found": stats["projects_found"],
+            "stakeholders_found": stats["stakeholders_found"]
+        })
+        session.commit()
+
+        logger.info(
+            f"Aggregation complete: job_id={job_id}, "
+            f"messages={stats['messages_processed']}, "
+            f"projects={stats['projects_found']}, "
+            f"stakeholders={stats['stakeholders_found']}"
+        )
+
+    except Exception as e:
+        logger.error(f"Error in aggregation task: {e}")
         try:
             db_path = get_db_path()
             engine = init_db(db_path)
