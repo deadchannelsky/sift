@@ -8,7 +8,9 @@
       "WebFetch(domain:sylvaindurand.org)",
       "WebFetch(domain:pypi.org)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "WebFetch(domain:libraries.io)",
+      "WebFetch(domain:raw.githubusercontent.com)"
     ]
   }
 }

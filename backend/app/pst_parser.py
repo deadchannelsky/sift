@@ -26,7 +26,8 @@ class PSTParser:
         pst_path: str,
         date_start: str = "2025-10-01",
         date_end: str = "2025-12-31",
-        min_conversation_messages: int = 3
+        min_conversation_messages: int = 3,
+        max_messages: Optional[int] = None
     ) -> Tuple[int, int, int]:
         """
         Parse PST file and store to database
@@ -36,6 +37,7 @@ class PSTParser:
             date_start: Start date (YYYY-MM-DD)
             date_end: End date (YYYY-MM-DD)
             min_conversation_messages: Minimum messages in thread to include
+            max_messages: Maximum messages to parse (None for unlimited)
 
         Returns:
             Tuple of (message_count, conversation_count, error_count)
@@ -64,11 +66,20 @@ class PSTParser:
                 # Dictionary to track conversations: topic -> list of messages
                 conversations = {}
 
+                # Track total messages extracted (for max_messages limit)
+                # Use dict for mutability across recursive calls
+                counter = {"count": 0}
+
                 # Extract messages from all folders (libratom returns pypff folder objects)
                 for folder in archive.folders():
                     try:
                         # Iterate through messages in this folder using pypff API
                         for msg_idx in range(folder.number_of_sub_messages):
+                            # Check if we've hit the max_messages limit
+                            if max_messages and counter["count"] >= max_messages:
+                                logger.info(f"Reached max_messages limit: {max_messages}")
+                                break
+
                             try:
                                 message = folder.get_sub_message(msg_idx)
                                 msg_data = self._extract_message(message)
@@ -83,16 +94,22 @@ class PSTParser:
                                     if topic not in conversations:
                                         conversations[topic] = []
                                     conversations[topic].append(msg_data)
+                                    counter["count"] += 1
 
                             except Exception as e:
                                 logger.warning(f"Error extracting message: {e}")
                                 self.error_count += 1
 
+                        # Check max_messages before recursing into subfolders
+                        if max_messages and counter["count"] >= max_messages:
+                            logger.info(f"Reached max_messages limit: {max_messages}")
+                            break
+
                         # Recurse into subfolders
                         for subfolder_idx in range(folder.number_of_sub_folders):
                             try:
                                 subfolder = folder.get_sub_folder(subfolder_idx)
-                                self._process_folder(subfolder, conversations, date_start_dt, date_end_dt)
+                                self._process_folder(subfolder, conversations, date_start_dt, date_end_dt, max_messages, counter)
                             except Exception as e:
                                 logger.warning(f"Error accessing subfolder: {e}")
 
@@ -124,14 +141,23 @@ class PSTParser:
         return self.message_count, self.conversation_count, self.error_count
 
 
-    def _process_folder(self, folder, conversations: dict, date_start, date_end, depth=0):
+    def _process_folder(self, folder, conversations: dict, date_start, date_end, max_messages=None, counter_dict=None, depth=0):
         """Recursively process folder and subfolders"""
         if depth > 20:  # Prevent infinite recursion
             return
 
+        # Initialize counter dict if needed (to track messages across recursion)
+        if counter_dict is None:
+            counter_dict = {"count": 0}
+
         try:
             # Process messages in this folder
             for msg_idx in range(folder.number_of_sub_messages):
+                # Check if we've hit the max_messages limit
+                if max_messages and counter_dict["count"] >= max_messages:
+                    logger.info(f"Reached max_messages limit: {max_messages}")
+                    return
+
                 try:
                     message = folder.get_sub_message(msg_idx)
                     msg_data = self._extract_message(message)
@@ -141,6 +167,7 @@ class PSTParser:
                         if topic not in conversations:
                             conversations[topic] = []
                         conversations[topic].append(msg_data)
+                        counter_dict["count"] += 1
 
                 except Exception as e:
                     logger.warning(f"Error extracting message: {e}")
@@ -148,9 +175,14 @@ class PSTParser:
 
             # Recurse into subfolders
             for subfolder_idx in range(folder.number_of_sub_folders):
+                # Check limit before recursing
+                if max_messages and counter_dict["count"] >= max_messages:
+                    logger.info(f"Reached max_messages limit: {max_messages}")
+                    return
+
                 try:
                     subfolder = folder.get_sub_folder(subfolder_idx)
-                    self._process_folder(subfolder, conversations, date_start, date_end, depth + 1)
+                    self._process_folder(subfolder, conversations, date_start, date_end, max_messages, counter_dict, depth + 1)
                 except Exception as e:
                     logger.warning(f"Error accessing subfolder: {e}")
 

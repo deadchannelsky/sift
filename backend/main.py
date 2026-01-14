@@ -46,6 +46,7 @@ class ParseRequest(BaseModel):
     date_start: str = "2025-10-01"
     date_end: str = "2025-12-31"
     min_conversation_messages: int = 3
+    max_messages: Optional[int] = None  # Limit total messages parsed (for testing)
 
 
 class StatusResponse(BaseModel):
@@ -139,7 +140,8 @@ async def parse_pst(
                 str(pst_path),
                 request.date_start,
                 request.date_end,
-                request.min_conversation_messages
+                request.min_conversation_messages,
+                request.max_messages
             )
 
         return {
@@ -264,11 +266,14 @@ def _parse_pst_task(
     pst_path: str,
     date_start: str,
     date_end: str,
-    min_conversation_messages: int
+    min_conversation_messages: int,
+    max_messages: Optional[int] = None
 ):
     """Background task to parse PST file"""
     try:
         logger.info(f"Starting PST parsing job: {job_id}")
+        if max_messages:
+            logger.info(f"Limiting to {max_messages} messages for testing")
 
         # Update job status
         db_path = get_db_path()
@@ -285,7 +290,8 @@ def _parse_pst_task(
             pst_path,
             date_start,
             date_end,
-            min_conversation_messages
+            min_conversation_messages,
+            max_messages
         )
 
         # Update job with results
