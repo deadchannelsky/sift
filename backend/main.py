@@ -178,19 +178,6 @@ class AggregateStatusResponse(BaseModel):
 
 
 # ============================================================================
-# STATIC FILE SERVING (Frontend)
-# ============================================================================
-
-# Mount frontend directory for serving static files
-frontend_dir = Path(__file__).parent.parent / "frontend"
-if frontend_dir.exists():
-    app.mount("/", StaticFiles(directory=str(frontend_dir), html=True), name="frontend")
-    logger.info(f"✅ Frontend served from: {frontend_dir}")
-else:
-    logger.warning(f"⚠️ Frontend directory not found: {frontend_dir}")
-
-
-# ============================================================================
 # ENDPOINTS
 # ============================================================================
 
@@ -1042,6 +1029,21 @@ def _aggregate_data_task(job_id: str):
                 session.commit()
         except:
             pass
+
+
+# ============================================================================
+# STATIC FILE SERVING (Frontend) - MUST BE LAST (after all API routes)
+# ============================================================================
+
+# Mount frontend directory for serving static files
+# NOTE: This must be mounted AFTER all API endpoints, otherwise it will
+# intercept all requests before they reach the API handlers
+frontend_dir = Path(__file__).parent.parent / "frontend"
+if frontend_dir.exists():
+    app.mount("/", StaticFiles(directory=str(frontend_dir), html=True), name="frontend")
+    logger.info(f"✅ Frontend served from: {frontend_dir}")
+else:
+    logger.warning(f"⚠️ Frontend directory not found: {frontend_dir}")
 
 
 # ============================================================================
