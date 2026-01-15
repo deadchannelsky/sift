@@ -202,6 +202,9 @@ async def upload_pst_file(file: UploadFile = File(...)):
         400: Invalid file format or failed validation
         500: Server error (disk space, IO error, etc.)
     """
+    file_content = None
+    file_path = None
+
     try:
         # Sanitize filename
         safe_filename = sanitize_filename(file.filename)
@@ -216,6 +219,7 @@ async def upload_pst_file(file: UploadFile = File(...)):
         logger.info(f"Uploading file: {safe_filename}")
         file_content = await file.read()
         file_size = len(file_content)
+        logger.info(f"File read complete: {file_size / (1024**3):.2f}GB")
 
         # Check disk space before saving
         has_space, space_msg = check_disk_space(upload_dir, file_size)
@@ -260,6 +264,17 @@ async def upload_pst_file(file: UploadFile = File(...)):
     except Exception as e:
         logger.error(f"Upload error: {e}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+    finally:
+        # Ensure file handle is closed and content is garbage collected
+        try:
+            await file.close()
+        except:
+            pass
+
+        # Clear large file content from memory
+        if file_content is not None:
+            del file_content
 
 
 @app.get("/pst-files")
