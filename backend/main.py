@@ -607,12 +607,13 @@ async def list_models():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/models/{model_name}")
+@app.post("/models/{model_name:path}")
 async def set_model(model_name: str):
     """Switch to a different model
 
     Args:
-        model_name: Name of the model to use (e.g., "granite-4.0-h-tiny")
+        model_name: Name of the model to use (e.g., "granite-4.0-h-tiny" or "hf.co/org/model:variant")
+                   URL-encoded names with slashes and colons are automatically decoded
 
     Returns:
         Success status and model info
@@ -621,19 +622,25 @@ async def set_model(model_name: str):
         raise HTTPException(status_code=503, detail="Ollama not initialized")
 
     try:
+        logger.info(f"Attempting to switch model to: {model_name}")
+
         if ollama_client.set_model(model_name):
+            logger.info(f"✅ Model switched successfully to: {model_name}")
             return {
                 "status": "success",
                 "current_model": ollama_client.model,
                 "message": f"Model set to: {model_name}"
             }
         else:
+            logger.warning(f"Model '{model_name}' not found on server")
             raise HTTPException(
                 status_code=400,
                 detail=f"Model '{model_name}' not found on server"
             )
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error setting model: {e}")
+        logger.error(f"Error setting model '{model_name}': {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

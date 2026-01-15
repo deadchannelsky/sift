@@ -523,10 +523,20 @@ async function loadModels() {
 
 async function switchModel() {
     const modelName = document.getElementById('model-select').value;
+    if (!modelName) {
+        console.warn('No model selected');
+        return;
+    }
+
     try {
-        await apiCall('POST', `/models/${modelName}`, {});
+        console.log('Switching to model:', modelName);
+        // URL-encode model name to handle slashes and colons (e.g., hf.co/org/model:variant)
+        const encodedModelName = encodeURIComponent(modelName);
+        const response = await apiCall('POST', `/models/${encodedModelName}`, {});
+        console.log('Model switched successfully:', response);
     } catch (error) {
         console.error('Error switching model:', error);
+        alert('Failed to switch model: ' + error.message);
     }
 }
 
