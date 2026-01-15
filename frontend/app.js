@@ -204,25 +204,52 @@ async function uploadFile(file) {
             }
         });
 
+        xhr.addEventListener('loadstart', () => {
+            console.log('Upload started for:', file.name, 'Size:', file.size);
+        });
+
         xhr.addEventListener('load', () => {
+            console.log('Upload completed with status:', xhr.status);
+
             if (xhr.status >= 200 && xhr.status < 300) {
                 try {
                     const result = JSON.parse(xhr.responseText);
+                    console.log('Upload successful:', result);
                     resolve(result);
                 } catch (e) {
-                    reject(new Error('Invalid upload response'));
+                    console.error('Failed to parse upload response:', e, 'Response:', xhr.responseText);
+                    reject(new Error('Invalid upload response: ' + e.message));
                 }
             } else {
-                const error = JSON.parse(xhr.responseText);
-                reject(new Error(error.detail || 'Upload failed'));
+                try {
+                    const error = JSON.parse(xhr.responseText);
+                    console.error('Upload failed with status', xhr.status, ':', error);
+                    reject(new Error(error.detail || 'Upload failed: ' + xhr.status));
+                } catch (e) {
+                    console.error('Upload failed, could not parse error response:', xhr.responseText);
+                    reject(new Error('Upload failed with status ' + xhr.status));
+                }
             }
         });
 
-        xhr.addEventListener('error', () => reject(new Error('Upload failed')));
-        xhr.addEventListener('timeout', () => reject(new Error('Upload timeout')));
+        xhr.addEventListener('error', (e) => {
+            console.error('Upload error event:', e);
+            reject(new Error('Upload network error'));
+        });
+
+        xhr.addEventListener('abort', (e) => {
+            console.error('Upload aborted:', e);
+            reject(new Error('Upload was aborted'));
+        });
+
+        xhr.addEventListener('timeout', () => {
+            console.error('Upload timeout after', UPLOAD_TIMEOUT, 'ms');
+            reject(new Error('Upload timeout'));
+        });
 
         xhr.timeout = UPLOAD_TIMEOUT;
         xhr.open('POST', API_BASE + 'upload');
+        console.log('Sending upload to:', API_BASE + 'upload');
         xhr.send(formData);
     });
 }
