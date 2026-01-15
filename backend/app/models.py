@@ -1,7 +1,7 @@
 """
 SQLAlchemy ORM models for Sift database schema
 """
-from sqlalchemy import Column, String, Integer, DateTime, Text, Boolean, ForeignKey, create_engine
+from sqlalchemy import Column, String, Integer, DateTime, Text, Boolean, Float, ForeignKey, create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 from datetime import datetime
