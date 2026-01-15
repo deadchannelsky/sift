@@ -164,9 +164,8 @@ def init_db(db_path: str = "data/messages.db"):
     # Enable Write-Ahead Logging for better concurrency
     # This allows readers to access the database while writes are in progress
     from sqlalchemy import text
-    with engine.connect() as conn:
+    with engine.begin() as conn:
         conn.execute(text("PRAGMA journal_mode=WAL"))
-        conn.commit()
 
     Base.metadata.create_all(engine)
     return engine
