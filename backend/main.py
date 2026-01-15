@@ -375,7 +375,8 @@ async def parse_pst(
                 request.date_start,
                 request.date_end,
                 request.min_conversation_messages,
-                request.max_messages
+                request.max_messages,
+                request.relevance_threshold
             )
 
         return {
@@ -915,7 +916,8 @@ def _parse_pst_task(
     date_start: str,
     date_end: str,
     min_conversation_messages: int,
-    max_messages: Optional[int] = None
+    max_messages: Optional[int] = None,
+    relevance_threshold: float = 0.80
 ):
     """Background task to parse PST file"""
     try:
@@ -933,11 +935,11 @@ def _parse_pst_task(
         session.commit()
 
         # Parse PST (with AI-powered relevance filtering)
-        # Override threshold from request
+        # Override threshold from request parameter
         parse_config = config.copy()
         if "parsing" not in parse_config:
             parse_config["parsing"] = {}
-        parse_config["parsing"]["relevance_threshold"] = request.relevance_threshold
+        parse_config["parsing"]["relevance_threshold"] = relevance_threshold
 
         parser = PSTParser(
             session,
