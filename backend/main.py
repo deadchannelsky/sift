@@ -125,6 +125,7 @@ class ParseRequest(BaseModel):
     min_conversation_messages: int = 3
     max_messages: Optional[int] = None  # Limit total messages parsed (for testing)
     clear_database: bool = False  # Clear all tables before parsing if True
+    relevance_threshold: float = 0.80  # Confidence threshold for spam filter (0.0-1.0)
 
 
 class StatusResponse(BaseModel):
@@ -932,11 +933,17 @@ def _parse_pst_task(
         session.commit()
 
         # Parse PST (with AI-powered relevance filtering)
+        # Override threshold from request
+        parse_config = config.copy()
+        if "parsing" not in parse_config:
+            parse_config["parsing"] = {}
+        parse_config["parsing"]["relevance_threshold"] = request.relevance_threshold
+
         parser = PSTParser(
             session,
             ollama_client=ollama_client,
             prompt_manager=prompt_manager,
-            config=config
+            config=parse_config
         )
         msg_count, conv_count, err_count = parser.parse_file(
             pst_path,

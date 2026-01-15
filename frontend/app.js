@@ -167,6 +167,7 @@ async function startUpload() {
             ? parseInt(document.getElementById('max-messages').value)
             : null;
         const clearDatabase = document.getElementById('clear-database').checked;
+        const relevanceThreshold = parseInt(document.getElementById('relevance-threshold').value) / 100;
 
         const parseResult = await apiCall('POST', '/parse', {
             pst_filename: filename,
@@ -174,7 +175,8 @@ async function startUpload() {
             date_end: dateEnd,
             min_conversation_messages: minMessages,
             max_messages: maxMessages,
-            clear_database: clearDatabase
+            clear_database: clearDatabase,
+            relevance_threshold: relevanceThreshold
         });
 
         currentJobIds.parse = parseResult.job_id;
@@ -610,6 +612,10 @@ function resetUploadPage() {
 
     // Reset clear database checkbox
     document.getElementById('clear-database').checked = false;
+
+    // Reset relevance threshold slider
+    document.getElementById('relevance-threshold').value = 80;
+    document.getElementById('threshold-value').textContent = 80;
 }
 
 async function loadPSTFiles() {
@@ -683,6 +689,7 @@ async function parseSelectedFile(filename) {
     try {
         // Start parsing
         const clearDatabase = document.getElementById('clear-database').checked;
+        const relevanceThreshold = parseInt(document.getElementById('relevance-threshold').value) / 100;
 
         const parseResult = await apiCall('POST', '/parse', {
             pst_filename: filename,
@@ -690,7 +697,8 @@ async function parseSelectedFile(filename) {
             date_end: dateEnd,
             min_conversation_messages: minMessages,
             max_messages: maxMessages,
-            clear_database: clearDatabase
+            clear_database: clearDatabase,
+            relevance_threshold: relevanceThreshold
         });
 
         currentJobIds.parse = parseResult.job_id;
