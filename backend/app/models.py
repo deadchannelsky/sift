@@ -55,8 +55,10 @@ class Message(Base):
 
     # Processing metadata
     message_index = Column(Integer, nullable=True)  # Position in conversation
-    enrichment_status = Column(String(50), default="pending")  # pending, processing, completed, failed
+    enrichment_status = Column(String(50), default="pending")  # pending, processing, completed, failed, filtered
     enrichment_error = Column(Text, nullable=True)  # Error message if processing failed
+    relevance_score = Column(Float, nullable=True)  # 0.0-1.0 LLM confidence from relevance filter
+    is_spurious = Column(Boolean, default=False, index=True)  # True if marked as non-work-relevant
     processed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 

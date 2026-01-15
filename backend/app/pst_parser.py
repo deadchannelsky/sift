@@ -15,11 +15,15 @@ from .utils import logger, ProgressTracker, TaskTimer, ensure_data_dir
 class PSTParser:
     """Parse PST file and extract messages to SQLite"""
 
-    def __init__(self, db_session: Session):
+    def __init__(self, db_session: Session, ollama_client=None, prompt_manager=None, config=None):
         self.db_session = db_session
+        self.ollama_client = ollama_client
+        self.prompt_manager = prompt_manager
+        self.config = config or {}
         self.message_count = 0
         self.conversation_count = 0
         self.error_count = 0
+        self.filtered_count = 0  # Track spurious emails filtered
 
     def parse_file(
         self,
@@ -161,7 +165,8 @@ class PSTParser:
 
         logger.info(
             f"Parse complete: {self.message_count} messages, "
-            f"{self.conversation_count} conversations, {self.error_count} errors"
+            f"{self.conversation_count} conversations, {self.error_count} errors, "
+            f"{self.filtered_count} filtered (spurious)"
         )
 
         return self.message_count, self.conversation_count, self.error_count
@@ -342,6 +347,72 @@ class PSTParser:
         except:
             return False
 
+    def _check_relevance(self, msg_data: dict) -> tuple:
+        """Check if message is work-relevant using LLM classification
+
+        Returns:
+            Tuple of (relevance_score: float, is_spurious: bool)
+        """
+        import json
+
+        # Check if filtering is enabled
+        parsing_config = self.config.get("parsing", {})
+        if not parsing_config.get("enable_relevance_filter", False):
+            return 0.5, False  # Filtering disabled, assume relevant
+
+        # Need Ollama and PromptManager
+        if not self.ollama_client or not self.prompt_manager:
+            logger.warning("Relevance filtering enabled but Ollama/PromptManager not available")
+            return 0.5, False  # Fail-safe: assume relevant
+
+        try:
+            # Get filter prompt
+            prompt_id = parsing_config.get("filter_prompt", "task_filter_relevance_v1")
+            prompt = self.prompt_manager.get_prompt(prompt_id)
+
+            if not prompt:
+                logger.warning(f"Relevance filter prompt not found: {prompt_id}")
+                return 0.5, False
+
+            # Prepare message data for prompt
+            prompt_data = {
+                "subject": msg_data.get("subject", ""),
+                "sender_email": msg_data.get("sender_email", ""),
+                "sender_name": msg_data.get("sender_name", ""),
+                "recipients": msg_data.get("recipients", ""),
+                "delivery_date": str(msg_data.get("delivery_date", "")),
+                "body_snippet": msg_data.get("body_snippet", "")[:500]
+            }
+
+            # Fill prompt template
+            filled_prompt = prompt.substitute_variables(prompt_data)
+
+            # Call LLM
+            response = self.ollama_client.generate(filled_prompt)
+
+            # Parse JSON response
+            result = json.loads(response)
+            classification = result.get("classification", "SPURIOUS")
+            confidence = float(result.get("confidence", 0.5))
+
+            # Get threshold from config
+            threshold = parsing_config.get("relevance_threshold", 0.80)
+
+            # Determine if spurious
+            is_spurious = (classification == "SPURIOUS" and confidence >= threshold)
+
+            if is_spurious:
+                logger.info(f"Filtered spurious email: {msg_data.get('subject', 'No subject')[:50]} (confidence={confidence:.2f})")
+
+            return confidence, is_spurious
+
+        except json.JSONDecodeError as e:
+            logger.warning(f"Relevance filter JSON parse error: {e}")
+            return 0.5, False  # Fail-safe
+        except Exception as e:
+            logger.warning(f"Relevance filter error: {e}")
+            return 0.5, False  # Fail-safe: assume relevant on error
+
     def _store_conversation(self, topic: str, messages: list) -> int:
         """Store conversation and messages to database"""
         try:
@@ -381,6 +452,12 @@ class PSTParser:
                         duplicates += 1
                         continue
 
+                    # Check relevance if filtering enabled
+                    relevance_score, is_spurious = self._check_relevance(msg_data)
+
+                    # Set enrichment status based on filter result
+                    enrichment_status = "filtered" if is_spurious else "pending"
+
                     msg = Message(
                         msg_id=msg_data["msg_id"],
                         conversation_id=conv.id,
@@ -396,9 +473,16 @@ class PSTParser:
                         has_ics_attachment=msg_data["has_ics_attachment"],
                         attachment_count=msg_data["attachment_count"],
                         message_index=idx,
-                        enrichment_status="pending"
+                        relevance_score=relevance_score,
+                        is_spurious=is_spurious,
+                        enrichment_status=enrichment_status
                     )
                     self.db_session.add(msg)
+
+                    # Track filtered count
+                    if is_spurious:
+                        self.filtered_count += 1
+
                     stored += 1
                 except Exception as e:
                     logger.warning(f"Error storing message: {e}")

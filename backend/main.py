@@ -931,8 +931,13 @@ def _parse_pst_task(
         job.status = "parsing"
         session.commit()
 
-        # Parse PST
-        parser = PSTParser(session)
+        # Parse PST (with AI-powered relevance filtering)
+        parser = PSTParser(
+            session,
+            ollama_client=ollama_client,
+            prompt_manager=prompt_manager,
+            config=config
+        )
         msg_count, conv_count, err_count = parser.parse_file(
             pst_path,
             date_start,
@@ -940,6 +945,11 @@ def _parse_pst_task(
             min_conversation_messages,
             max_messages
         )
+
+        # Log filtering statistics
+        if parser.filtered_count > 0:
+            filter_pct = (parser.filtered_count / (msg_count + parser.filtered_count) * 100) if msg_count else 0
+            logger.info(f"Filtered {parser.filtered_count} spurious emails ({filter_pct:.1f}% of total)")
 
         # Update job with results
         job.status = "completed"
@@ -984,7 +994,11 @@ def _enrich_messages_task(job_id: str, max_messages: Optional[int] = None, batch
         session.commit()
 
         # Get pending messages (limited by max_messages if specified)
-        query = session.query(Message).filter_by(enrichment_status="pending")
+        # IMPORTANT: Filter out spurious emails marked by relevance filter
+        query = session.query(Message).filter(
+            Message.enrichment_status == "pending",
+            Message.is_spurious == False  # Exclude filtered emails
+        )
         if max_messages:
             query = query.limit(max_messages)
 

@@ -1,0 +1,22 @@
+{
+  "prompt_id": "task_filter_relevance_v1",
+  "version": "1.0.0",
+  "task": "relevance_filter",
+  "description": "Classifies email as work-relevant vs spurious (ads, solicitations, vendor spam, newsletters)",
+  "model_params": {
+    "temperature": 0.3,
+    "num_predict": 250,
+    "stop_sequences": []
+  },
+  "prompt_template": "Classify this email as WORK-RELEVANT or SPURIOUS.\n\nAn email is SPURIOUS if it is:\n- Marketing emails, newsletters, promotional content\n- Vendor solicitations, sales pitches, cold outreach\n- Job postings, recruiting emails from unknown recruiters\n- Automated monitoring/build notifications NOT related to your work\n- Out-of-office replies, delivery failures, bounce messages\n- Conference announcements, event invites from unknown senders\n- News digests, industry updates, blog subscriptions\n\nAn email is WORK-RELEVANT if it is:\n- Project discussions, technical conversations, code reviews\n- Team communications, 1-on-1s, meeting invitations from colleagues\n- Decisions, approvals, reviews, work requests\n- Direct questions or assignments from team members\n- Automated reports YOU own (your dashboards, your services)\n- Internal company communications about your projects\n\nEMAIL TO CLASSIFY:\n\nSubject: {subject}\nFrom: {sender_email} ({sender_name})\nTo: {recipients}\nDelivery Date: {delivery_date}\n\nBody Preview:\n{body_snippet}\n\n---\n\nRESPOND ONLY WITH VALID JSON:\n\n{\n  \"classification\": \"WORK_RELEVANT\" or \"SPURIOUS\",\n  \"confidence\": 0.85,\n  \"reasoning\": [\n    \"Signal 1: Brief explanation\",\n    \"Signal 2: Brief explanation\"\n  ]\n}",
+  "example_output": {
+    "classification": "SPURIOUS",
+    "confidence": 0.92,
+    "reasoning": [
+      "Subject contains 'Exclusive Offer' - promotional language",
+      "Sender is external vendor (noreply@vendor.com)",
+      "Body contains marketing content, no work discussion"
+    ]
+  },
+  "tags": ["default", "v1", "production"]
+}

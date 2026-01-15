@@ -1,4 +1,9 @@
 {
+  "parsing": {
+    "enable_relevance_filter": true,
+    "relevance_threshold": 0.80,
+    "filter_prompt": "task_filter_relevance_v1"
+  },
   "ollama": {
     "url": "http://localhost:11434",
     "model": "hf.co/ibm-granite/granite-4.0-h-tiny-GGUF:Q8_0",
