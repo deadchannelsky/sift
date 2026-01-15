@@ -14,7 +14,7 @@
 
 const API_BASE = '/';
 const POLL_INTERVAL = 2000; // 2 seconds
-const UPLOAD_TIMEOUT = 300000; // 5 minutes
+const UPLOAD_TIMEOUT = 1200000; // 20 minutes (for large 1-2GB files)
 
 // Global state
 let currentJobIds = {
@@ -195,17 +195,40 @@ async function uploadFile(file) {
         const formData = new FormData();
         formData.append('file', file);
 
+        const startTime = Date.now();
+        let lastProgressTime = startTime;
+        let lastProgressBytes = 0;
+
         // Progress tracking
         xhr.upload.addEventListener('progress', (e) => {
             if (e.lengthComputable) {
                 const percent = (e.loaded / e.total) * 100;
                 updateProgressBar('upload-bar', percent);
-                document.getElementById('upload-percent').textContent = Math.round(percent) + '%';
+
+                // Calculate upload speed
+                const currentTime = Date.now();
+                const timeDiff = (currentTime - lastProgressTime) / 1000; // seconds
+                const bytesDiff = e.loaded - lastProgressBytes;
+
+                if (timeDiff > 2) {  // Update every 2 seconds
+                    const speedMBps = (bytesDiff / (1024 * 1024)) / timeDiff;
+                    const remainingBytes = e.total - e.loaded;
+                    const remainingSeconds = remainingBytes / (speedMBps * 1024 * 1024);
+                    const remainingMinutes = Math.ceil(remainingSeconds / 60);
+
+                    const status = `${Math.round(percent)}% (${(e.loaded / (1024**3)).toFixed(2)}GB / ${(e.total / (1024**3)).toFixed(2)}GB) - ${speedMBps.toFixed(1)} MB/s - ETA: ${remainingMinutes}m`;
+                    document.getElementById('upload-percent').textContent = status;
+                    console.log('Upload progress:', status);
+
+                    lastProgressTime = currentTime;
+                    lastProgressBytes = e.loaded;
+                }
             }
         });
 
         xhr.addEventListener('loadstart', () => {
-            console.log('Upload started for:', file.name, 'Size:', file.size);
+            const fileSizeGB = (file.size / (1024**3)).toFixed(2);
+            console.log('Upload started for:', file.name, 'Size:', fileSizeGB + 'GB', '(' + file.size + ' bytes)');
         });
 
         xhr.addEventListener('load', () => {
