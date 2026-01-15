@@ -166,13 +166,15 @@ async function startUpload() {
         const maxMessages = document.getElementById('max-messages').value
             ? parseInt(document.getElementById('max-messages').value)
             : null;
+        const clearDatabase = document.getElementById('clear-database').checked;
 
         const parseResult = await apiCall('POST', '/parse', {
             pst_filename: filename,
             date_start: dateStart,
             date_end: dateEnd,
             min_conversation_messages: minMessages,
-            max_messages: maxMessages
+            max_messages: maxMessages,
+            clear_database: clearDatabase
         });
 
         currentJobIds.parse = parseResult.job_id;
@@ -605,6 +607,9 @@ function resetUploadPage() {
     document.getElementById('date-start').value = '2020-01-01';
     const today = new Date().toISOString().split('T')[0];
     document.getElementById('date-end').value = today;
+
+    // Reset clear database checkbox
+    document.getElementById('clear-database').checked = false;
 }
 
 async function loadPSTFiles() {
@@ -677,12 +682,15 @@ async function parseSelectedFile(filename) {
 
     try {
         // Start parsing
+        const clearDatabase = document.getElementById('clear-database').checked;
+
         const parseResult = await apiCall('POST', '/parse', {
             pst_filename: filename,
             date_start: dateStart,
             date_end: dateEnd,
             min_conversation_messages: minMessages,
-            max_messages: maxMessages
+            max_messages: maxMessages,
+            clear_database: clearDatabase
         });
 
         currentJobIds.parse = parseResult.job_id;

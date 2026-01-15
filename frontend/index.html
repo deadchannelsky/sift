@@ -92,6 +92,14 @@
                         <input type="number" id="max-messages" placeholder="Leave empty to process all" min="1">
                         <small>Useful for testing with large files</small>
                     </div>
+
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                            <input type="checkbox" id="clear-database" style="width: auto; margin: 0;">
+                            <span>Clear existing database before parsing</span>
+                        </label>
+                        <small style="color: #dc3545;">⚠️ Warning: This will permanently delete all previously parsed messages, conversations, and enrichment data</small>
+                    </div>
                 </div>
 
                 <!-- Upload Button -->

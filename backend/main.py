@@ -124,6 +124,7 @@ class ParseRequest(BaseModel):
     date_end: str = "2025-12-31"
     min_conversation_messages: int = 3
     max_messages: Optional[int] = None  # Limit total messages parsed (for testing)
+    clear_database: bool = False  # Clear all tables before parsing if True
 
 
 class StatusResponse(BaseModel):
@@ -339,6 +340,20 @@ async def parse_pst(
         db_path = get_db_path()
         engine = init_db(db_path)
         session = get_session(engine)
+
+        # Clear database if requested by user
+        if request.clear_database:
+            logger.warning("⚠️  User requested database clear before parsing")
+            from app.models import clear_all_tables
+            try:
+                clear_all_tables(session)
+                logger.info("Database cleared successfully")
+            except Exception as e:
+                logger.error(f"Failed to clear database: {e}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to clear database: {str(e)}"
+                )
 
         job = ProcessingJob(
             job_id=job_id,

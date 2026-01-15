@@ -159,3 +159,49 @@ def get_session(engine):
     """Get a database session"""
     Session = sessionmaker(bind=engine)
     return Session()
+
+
+def clear_all_tables(db_session):
+    """
+    Clear all database tables (destructive operation)
+
+    Deletes all records from ProcessingJob, Extraction, Attachment,
+    Message, and Conversation tables. Use with caution.
+
+    Clears in reverse dependency order to respect foreign key constraints:
+    1. ProcessingJob (independent)
+    2. Extraction (references Message)
+    3. Attachment (references Message)
+    4. Message (references Conversation)
+    5. Conversation (root table)
+
+    Args:
+        db_session: SQLAlchemy session
+    """
+    from sqlalchemy import text
+    from .utils import logger
+
+    logger.info("Clearing all database tables...")
+
+    try:
+        # Disable foreign key constraints temporarily (SQLite specific)
+        db_session.execute(text("PRAGMA foreign_keys = OFF"))
+
+        # Delete in order (respecting dependencies)
+        db_session.query(ProcessingJob).delete()
+        db_session.query(Extraction).delete()
+        db_session.query(Attachment).delete()
+        db_session.query(Message).delete()
+        db_session.query(Conversation).delete()
+
+        db_session.commit()
+
+        # Re-enable foreign key constraints
+        db_session.execute(text("PRAGMA foreign_keys = ON"))
+
+        logger.info("✅ All database tables cleared successfully")
+
+    except Exception as e:
+        db_session.rollback()
+        logger.error(f"Error clearing database tables: {e}")
+        raise
