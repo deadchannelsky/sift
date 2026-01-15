@@ -35,9 +35,19 @@ app = FastAPI(
 )
 
 # Add CORS middleware for frontend communication
+# Allow any localhost origin for development (frontend can be on any port)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:8080"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:5000",
+        "http://localhost:8000",
+        "http://localhost:8080",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:5000",
+        "http://127.0.0.1:8000",
+        "http://127.0.0.1:8080",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -184,6 +194,12 @@ class AggregateStatusResponse(BaseModel):
 # ENDPOINTS
 # ============================================================================
 
+@app.options("/upload")
+async def upload_options():
+    """Handle CORS preflight requests for file upload"""
+    return {"status": "ok"}
+
+
 @app.post("/upload")
 async def upload_pst_file(file: UploadFile = File(...)):
     """
@@ -210,6 +226,8 @@ async def upload_pst_file(file: UploadFile = File(...)):
         safe_filename = sanitize_filename(file.filename)
         if not safe_filename.lower().endswith('.pst'):
             safe_filename += '.pst'
+
+        logger.info(f"Upload endpoint reached. File: {safe_filename}, Content-Type: {file.content_type}")
 
         # Get upload directory
         upload_dir = Path(config.get("output", {}).get("dir", "./data"))
