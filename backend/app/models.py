@@ -147,12 +147,27 @@ def init_db(db_path: str = "data/messages.db"):
 
     Note: check_same_thread=False allows FastAPI background tasks (which run in threads)
     to safely access the database. SQLite handles thread safety internally.
+
+    Timeout=15 gives background tasks time to complete writes before reads timeout.
+    WAL mode enables concurrent readers while writes are in progress.
     """
     engine = create_engine(
         f"sqlite:///{db_path}",
         echo=False,
-        connect_args={"check_same_thread": False}
+        connect_args={
+            "check_same_thread": False,
+            "timeout": 15  # 15 second timeout for lock waits (default is 5)
+        },
+        pool_pre_ping=True  # Verify connections before using
     )
+
+    # Enable Write-Ahead Logging for better concurrency
+    # This allows readers to access the database while writes are in progress
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        conn.execute(text("PRAGMA journal_mode=WAL"))
+        conn.commit()
+
     Base.metadata.create_all(engine)
     return engine
 

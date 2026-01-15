@@ -130,6 +130,10 @@ class PSTParser:
                     f"{counter['date_filtered']} filtered by date range, "
                     f"{counter['scanned']} total scanned"
                 )
+                logger.info(
+                    f"Date range filter: {date_start_dt.date()} to {date_end_dt.date()} "
+                    f"({counter['date_filtered']} messages outside this range)"
+                )
                 logger.info(f"Found {len(conversations)} conversations after date range filter")
 
                 # Show message distribution before filtering by minimum
@@ -162,6 +166,21 @@ class PSTParser:
         except Exception as e:
             logger.error(f"Error parsing PST: {e}")
             raise
+
+        # Log sample dates for debugging date range issues
+        if hasattr(self, '_date_samples') and self._date_samples:
+            samples_breakdown = []
+            for date_tuple in self._date_samples:
+                if isinstance(date_tuple, tuple):
+                    date, in_range = date_tuple
+                    date_str = str(date.date()) if hasattr(date, 'date') else str(date)
+                    status = "✓IN" if in_range else "✗OUT"
+                    samples_breakdown.append(f"{date_str}({status})")
+                else:
+                    # Fallback for old format
+                    date_str = str(date_tuple.date()) if hasattr(date_tuple, 'date') else str(date_tuple)
+                    samples_breakdown.append(date_str)
+            logger.info(f"Sample email dates (20 total): {', '.join(samples_breakdown)}")
 
         logger.info(
             f"Parse complete: {self.message_count} messages, "
@@ -343,8 +362,15 @@ class PSTParser:
         if not delivery_date:
             return False
         try:
-            return date_start <= delivery_date <= date_end
-        except:
+            in_range = date_start <= delivery_date <= date_end
+            # Track date distribution for debugging (both accepted and rejected)
+            if not hasattr(self, '_date_samples'):
+                self._date_samples = []
+            if len(self._date_samples) < 20:  # Keep first 20 samples from all dates
+                self._date_samples.append((delivery_date, in_range))
+            return in_range
+        except Exception as e:
+            logger.warning(f"Date comparison error: {e}, delivery_date={delivery_date}, start={date_start}, end={date_end}")
             return False
 
     def _check_relevance(self, msg_data: dict) -> tuple:
@@ -390,8 +416,20 @@ class PSTParser:
             # Call LLM
             response = self.ollama_client.generate(filled_prompt)
 
+            # Handle empty response
+            if not response or not response.strip():
+                logger.warning(f"Relevance filter: LLM returned empty response for '{msg_data.get('subject', 'No subject')[:40]}'")
+                return 0.5, False  # Fail-safe: assume work-relevant
+
             # Parse JSON response
-            result = json.loads(response)
+            try:
+                result = json.loads(response)
+            except json.JSONDecodeError as parse_error:
+                # Log the actual response for debugging
+                response_snippet = response[:200] if len(response) > 200 else response
+                logger.warning(f"Relevance filter JSON parse error: {parse_error}. Response: '{response_snippet}'")
+                return 0.5, False  # Fail-safe
+
             classification = result.get("classification", "SPURIOUS")
             confidence = float(result.get("confidence", 0.5))
 
@@ -406,9 +444,6 @@ class PSTParser:
 
             return confidence, is_spurious
 
-        except json.JSONDecodeError as e:
-            logger.warning(f"Relevance filter JSON parse error: {e}")
-            return 0.5, False  # Fail-safe
         except Exception as e:
             logger.warning(f"Relevance filter error: {e}")
             return 0.5, False  # Fail-safe: assume relevant on error

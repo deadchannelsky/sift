@@ -444,10 +444,18 @@ class StakeholderProfile:
 class StakeholderAggregator:
     """Deduplicates stakeholders by email and aggregates their data"""
 
-    def __init__(self):
+    # Generic/placeholder names to filter
+    GENERIC_NAMES = {
+        "john doe", "jane smith", "jane doe", "john smith", "michael chen",
+        "emily davis", "alice brown", "bob johnson", "david lee", "sarah johnson",
+        "michael johnson", "alice johnson", "corporate stakeholders", "stakeholder"
+    }
+
+    def __init__(self, config: Dict = None):
         """Initialize stakeholder aggregator"""
         self.stakeholders: Dict[str, StakeholderProfile] = {}
         self.stats = {"processing_time_ms": 0}
+        self.config = config or {}
 
     def add_stakeholder_mention(
         self,
@@ -562,17 +570,180 @@ class StakeholderAggregator:
         best_role = max(scored, key=lambda x: x[1])[0] if scored else "Unknown"
         return best_role
 
+    def _is_generic_name(self, name: str) -> bool:
+        """Check if name is a generic/placeholder name"""
+        return name.lower() in self.GENERIC_NAMES
+
+    def _get_name_similarity(self, name1: str, name2: str) -> float:
+        """
+        Calculate name similarity score (0.0-1.0)
+
+        Handles variations like:
+        - "Jane Smith" vs "Jane" (partial match)
+        - "john.doe@company.com" vs "John Doe" (email vs name)
+        """
+        n1 = name1.lower().strip()
+        n2 = name2.lower().strip()
+
+        # Exact match
+        if n1 == n2:
+            return 1.0
+
+        # Extract parts (for "Jane Smith" -> ["jane", "smith"])
+        parts1 = n1.split()
+        parts2 = n2.split()
+
+        # Check if one is a subset of the other (common names match)
+        common_parts = set(parts1) & set(parts2)
+        if common_parts and len(common_parts) >= min(len(parts1), len(parts2)) - 1:
+            return 0.90
+
+        # Substring matching
+        if n1 in n2 or n2 in n1:
+            return 0.75
+
+        # Use sequence matcher for fuzzy matching
+        from difflib import SequenceMatcher
+        ratio = SequenceMatcher(None, n1, n2).ratio()
+        return ratio
+
+    def _deduplicate_by_name(self) -> Dict[str, str]:
+        """
+        Deduplicate stakeholders by name similarity
+
+        Returns:
+            Mapping of email -> canonical_email for merging
+        """
+        config = self.config.get("stakeholder_filtering", {})
+        if not config.get("enable_name_deduplication", False):
+            return {}
+
+        threshold = config.get("name_similarity_threshold", 0.85)
+        name_to_emails: Dict[str, List[str]] = {}
+        merge_map = {}
+
+        # Group stakeholders by similar names
+        profiles = list(self.stakeholders.values())
+        for i, profile1 in enumerate(profiles):
+            for profile2 in profiles[i + 1:]:
+                similarity = self._get_name_similarity(profile1.name, profile2.name)
+
+                if similarity >= threshold:
+                    # Merge the lower-frequency one into the higher-frequency one
+                    if profile1.message_count >= profile2.message_count:
+                        canonical = profile1.email
+                        duplicate = profile2.email
+                    else:
+                        canonical = profile2.email
+                        duplicate = profile1.email
+
+                    merge_map[duplicate] = canonical
+                    logger.info(
+                        f"Deduplicate: '{profile1.name}' ({profile1.email}) + "
+                        f"'{profile2.name}' ({profile2.email}) => {canonical} "
+                        f"(similarity={similarity:.2f})"
+                    )
+
+        return merge_map
+
+    def _apply_deduplication(self, merge_map: Dict[str, str]):
+        """
+        Apply email merging based on name similarity
+
+        Combines profiles that should be the same person
+        """
+        if not merge_map:
+            return
+
+        # For each duplicate email, merge into canonical
+        for dup_email, canonical_email in merge_map.items():
+            if dup_email not in self.stakeholders:
+                continue
+
+            dup_profile = self.stakeholders[dup_email]
+            canonical_profile = self.stakeholders.get(canonical_email)
+
+            if not canonical_profile:
+                # If canonical doesn't exist, just rename the duplicate
+                self.stakeholders[canonical_email] = dup_profile
+                del self.stakeholders[dup_email]
+                dup_profile.email = canonical_email
+            else:
+                # Merge duplicate into canonical
+                canonical_profile.message_count += dup_profile.message_count
+                canonical_profile.interaction_types.update(dup_profile.interaction_types)
+                canonical_profile.projects.update(dup_profile.projects)
+
+                # Merge roles
+                for role in dup_profile.inferred_roles:
+                    existing_role_idx = next(
+                        (i for i, r in enumerate(canonical_profile.inferred_roles)
+                         if r["role"] == role["role"]),
+                        None
+                    )
+                    if existing_role_idx is not None:
+                        canonical_profile.inferred_roles[existing_role_idx]["mention_count"] += role["mention_count"]
+                        canonical_profile.inferred_roles[existing_role_idx]["confidence"] = max(
+                            canonical_profile.inferred_roles[existing_role_idx]["confidence"],
+                            role["confidence"]
+                        )
+                    else:
+                        canonical_profile.inferred_roles.append(role)
+
+                # Update date range
+                if dup_profile.first_appearance and (not canonical_profile.first_appearance or dup_profile.first_appearance < canonical_profile.first_appearance):
+                    canonical_profile.first_appearance = dup_profile.first_appearance
+                if dup_profile.last_appearance and (not canonical_profile.last_appearance or dup_profile.last_appearance > canonical_profile.last_appearance):
+                    canonical_profile.last_appearance = dup_profile.last_appearance
+
+                # Remove duplicate
+                del self.stakeholders[dup_email]
+
     def to_json(self) -> dict:
         """
         Export all stakeholders as aggregated_stakeholders.json
 
+        Applies filtering and deduplication before export
+
         Returns:
             JSON-serializable dict with stakeholders and stats
         """
+        config = self.config.get("stakeholder_filtering", {})
+
+        # Step 1: Deduplicate by name similarity
+        if config.get("enable_name_deduplication", False):
+            merge_map = self._deduplicate_by_name()
+            self._apply_deduplication(merge_map)
+
         stakeholders = []
+        filtered_count = 0
 
         for profile in self.stakeholders.values():
-            stakeholders.append(profile.to_json())
+            profile_json = profile.to_json()
+
+            # Step 2: Filter by confidence
+            if config.get("enable_filtering", False):
+                min_conf = config.get("min_role_confidence", 0.70)
+                if profile_json["inferred_roles"]:
+                    avg_confidence = sum(r["confidence"] for r in profile_json["inferred_roles"]) / len(profile_json["inferred_roles"])
+                    if avg_confidence < min_conf:
+                        filtered_count += 1
+                        continue
+
+                # Step 3: Filter by mention count
+                min_mentions = config.get("min_mention_count", 2)
+                if profile_json["message_count"] < min_mentions:
+                    filtered_count += 1
+                    continue
+
+                # Step 4: Filter generic/placeholder names
+                if config.get("exclude_generic_names", False):
+                    if self._is_generic_name(profile_json["name"]):
+                        logger.info(f"Filtering generic name: {profile_json['name']} ({profile_json['email']})")
+                        filtered_count += 1
+                        continue
+
+            stakeholders.append(profile_json)
 
         # Sort by message count (descending)
         stakeholders.sort(key=lambda s: s["message_count"], reverse=True)
@@ -587,10 +758,14 @@ class StakeholderAggregator:
             else 0
         )
 
+        logger.info(f"Stakeholder filtering complete: {filtered_count} filtered out, {len(stakeholders)} remaining")
+
         return {
             "stakeholders": stakeholders,
             "stats": {
                 "total_stakeholders": len(stakeholders),
+                "total_before_filtering": len(self.stakeholders) + filtered_count,
+                "filtered_out": filtered_count,
                 "avg_projects_per_person": avg_projects,
                 "processing_time_ms": self.stats.get("processing_time_ms", 0),
             },
@@ -618,7 +793,7 @@ class AggregationEngine:
                 "embedding_similarity_threshold", 0.75
             )
         )
-        self.stakeholder_aggregator = StakeholderAggregator()
+        self.stakeholder_aggregator = StakeholderAggregator(config)
         self.stats = {
             "messages_processed": 0,
             "projects_found": 0,
@@ -645,6 +820,37 @@ class AggregationEngine:
             # Calculate processing time
             processing_time = int((time.time() - start_time) * 1000)
             self.stats["processing_time_ms"] = processing_time
+
+            # Log stakeholder confidence distribution
+            stakeholder_data = self.stakeholder_aggregator.to_json()["stakeholders"]
+            if stakeholder_data:
+                role_confidences = []
+                for sh in stakeholder_data:
+                    for role in sh.get("inferred_roles", []):
+                        role_confidences.append(role["confidence"])
+
+                high_conf = sum(1 for c in role_confidences if c >= 0.80)
+                medium_conf = sum(1 for c in role_confidences if 0.50 <= c < 0.80)
+                low_conf = sum(1 for c in role_confidences if c < 0.50)
+
+                logger.info(
+                    f"Stakeholder confidence distribution: "
+                    f"High(>=0.80)={high_conf}, Medium(0.50-0.80)={medium_conf}, Low(<0.50)={low_conf}"
+                )
+
+                # Show top 10 by total mentions (before filtering)
+                top_stakeholders = sorted(
+                    stakeholder_data,
+                    key=lambda s: s["message_count"],
+                    reverse=True
+                )[:10]
+                logger.info("Top 10 stakeholders (before filtering):")
+                for i, sh in enumerate(top_stakeholders, 1):
+                    primary_role = sh.get("primary_role", "Unknown")
+                    logger.info(
+                        f"  {i}. {sh['name']:20} ({sh['email']:35}) | {primary_role:20} | "
+                        f"msgs={sh['message_count']}"
+                    )
 
             logger.info(
                 f"Aggregation complete: "
@@ -745,12 +951,32 @@ class AggregationEngine:
                 if not email:
                     continue
 
+                role_confidence = extraction.get("role_confidence", 0.5)
+                name = extraction.get("stakeholder", "Unknown")
+                role = extraction.get("inferred_role", "Unknown")
+                interaction = extraction.get("interaction_type", "stakeholder")
+
+                # Log raw stakeholder extraction before aggregation
+                # This helps diagnose hallucinations vs. real recipient emails
+                if not hasattr(self, '_stakeholder_log_count'):
+                    self._stakeholder_log_count = 0
+                    logger.info("=== STAKEHOLDER EXTRACTIONS (RAW) ===")
+
+                if self._stakeholder_log_count < 50:  # Log first 50 for analysis
+                    evidence = extraction.get("evidence", [])
+                    evidence_str = " | ".join(evidence[:2]) if evidence else "No evidence"
+                    logger.info(
+                        f"  {name:20} | {email:35} | {role:20} | "
+                        f"conf={role_confidence:.2f} | {interaction:15} | {evidence_str[:60]}"
+                    )
+                    self._stakeholder_log_count += 1
+
                 self.stakeholder_aggregator.add_stakeholder_mention(
                     email=email,
-                    name=extraction.get("stakeholder", "Unknown"),
-                    inferred_role=extraction.get("inferred_role", "Unknown"),
-                    role_confidence=extraction.get("role_confidence", 0.5),
-                    interaction_type=extraction.get("interaction_type", "stakeholder"),
+                    name=name,
+                    inferred_role=role,
+                    role_confidence=role_confidence,
+                    interaction_type=interaction,
                     message_id=message.id,
                     delivery_date=message.delivery_date,
                     project_name=primary_project,
@@ -818,6 +1044,17 @@ class AggregationEngine:
         with open(stakeholders_file, "w", encoding="utf-8") as f:
             json.dump(stakeholders_data, f, indent=2, ensure_ascii=False)
         logger.info(f"Wrote {stakeholders_file}")
+
+        # Log filtering stats
+        stats = stakeholders_data.get("stats", {})
+        filtered_out = stats.get("filtered_out", 0)
+        total_before = stats.get("total_before_filtering", 0)
+        if filtered_out > 0:
+            logger.info(
+                f"Stakeholder filtering: {filtered_out} removed "
+                f"({100*filtered_out/total_before:.1f}% of {total_before} total), "
+                f"{len(stakeholders_data['stakeholders'])} remaining"
+            )
 
         # Update stats
         self.stats["projects_found"] = len(projects_data["projects"])

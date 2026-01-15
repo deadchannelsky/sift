@@ -411,37 +411,51 @@ async def get_status(job_id: str) -> StatusResponse:
             "error": null
         }
     """
-    try:
-        db_path = get_db_path()
-        engine = init_db(db_path)
-        session = get_session(engine)
+    import time
 
-        job = session.query(ProcessingJob).filter_by(job_id=job_id).first()
+    max_retries = 3
+    retry_delay = 0.1  # seconds
 
-        if not job:
-            raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+    for attempt in range(max_retries):
+        try:
+            db_path = get_db_path()
+            engine = init_db(db_path)
+            session = get_session(engine)
 
-        progress_percent = (
-            (job.processed_messages / job.total_messages * 100)
-            if job.total_messages > 0
-            else 0
-        )
+            job = session.query(ProcessingJob).filter_by(job_id=job_id).first()
 
-        return StatusResponse(
-            job_id=job.job_id,
-            status=job.status,
-            total_messages=job.total_messages,
-            processed_messages=job.processed_messages,
-            current_task=job.current_task,
-            progress_percent=progress_percent,
-            error=job.error_message
-        )
+            if not job:
+                raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting status: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+            progress_percent = (
+                (job.processed_messages / job.total_messages * 100)
+                if job.total_messages > 0
+                else 0
+            )
+
+            session.close()
+
+            return StatusResponse(
+                job_id=job.job_id,
+                status=job.status,
+                total_messages=job.total_messages,
+                processed_messages=job.processed_messages,
+                current_task=job.current_task,
+                progress_percent=progress_percent,
+                error=job.error_message
+            )
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            if "database is locked" in str(e) and attempt < max_retries - 1:
+                # Transient lock contention, retry
+                logger.debug(f"Database locked, retrying ({attempt + 1}/{max_retries})...")
+                time.sleep(retry_delay)
+                retry_delay *= 2  # Exponential backoff
+            else:
+                logger.error(f"Error getting status: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/jobs/{job_id}/cancel")
