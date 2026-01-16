@@ -880,14 +880,124 @@ async function parseSelectedFile(filename) {
     }
 }
 
+// ============================================================================
+// AGGREGATION SETTINGS FUNCTIONS
+// ============================================================================
+
+function updateAggregationValue(elementId, value) {
+    const element = document.getElementById(elementId);
+    if (element) {
+        element.textContent = parseFloat(value).toFixed(2);
+    }
+}
+
+function switchAggregationTab(tabName) {
+    // Hide all tab panes
+    document.querySelectorAll('.agg-tab-pane').forEach(pane => {
+        pane.style.display = 'none';
+    });
+
+    // Show selected tab pane
+    const selectedPane = document.getElementById(`agg-tab-${tabName}`);
+    if (selectedPane) {
+        selectedPane.style.display = 'block';
+    }
+
+    // Update tab button styling
+    document.querySelectorAll('.agg-tab-btn').forEach(btn => {
+        if (btn.getAttribute('data-tab') === tabName) {
+            btn.classList.add('active');
+            btn.style.borderBottom = '3px solid #2563eb';
+            btn.style.color = '#2563eb';
+        } else {
+            btn.classList.remove('active');
+            btn.style.borderBottom = '3px solid transparent';
+            btn.style.color = '#666';
+        }
+    });
+}
+
+function toggleDeduplicationSlider() {
+    const dedupCheckbox = document.getElementById('agg-dedup-enable');
+    const similarityInput = document.getElementById('agg-similarity');
+    const similarityGroup = similarityInput.parentElement.parentElement;
+
+    if (dedupCheckbox.checked) {
+        similarityGroup.style.opacity = '1';
+        similarityInput.disabled = false;
+    } else {
+        similarityGroup.style.opacity = '0.5';
+        similarityInput.disabled = true;
+    }
+}
+
+function getAggregationSettings() {
+    return {
+        min_role_confidence: parseFloat(document.getElementById('agg-min-conf').value),
+        min_mention_count: parseInt(document.getElementById('agg-min-mentions').value),
+        exclude_generic_names: document.getElementById('agg-exclude-generic').checked,
+        enable_name_deduplication: document.getElementById('agg-dedup-enable').checked,
+        name_similarity_threshold: parseFloat(document.getElementById('agg-similarity').value),
+        validate_email_domains: document.getElementById('agg-validate-domains').checked,
+        enable_diagnostics: document.getElementById('agg-enable-diags').checked
+    };
+}
+
+async function resetAggregationSettings() {
+    try {
+        console.log('Fetching aggregation defaults...');
+        const response = await fetch('/config/aggregation-defaults');
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const defaults = await response.json();
+        console.log('Aggregation defaults loaded:', defaults);
+
+        // Populate form with defaults
+        document.getElementById('agg-min-conf').value = defaults.min_role_confidence;
+        document.getElementById('agg-conf-value').textContent = defaults.min_role_confidence.toFixed(2);
+
+        document.getElementById('agg-min-mentions').value = defaults.min_mention_count;
+        document.getElementById('agg-mentions-value').textContent = defaults.min_mention_count;
+
+        document.getElementById('agg-exclude-generic').checked = defaults.exclude_generic_names;
+        document.getElementById('agg-validate-domains').checked = defaults.validate_email_domains;
+
+        document.getElementById('agg-dedup-enable').checked = defaults.enable_name_deduplication;
+        document.getElementById('agg-similarity').value = defaults.name_similarity_threshold;
+        document.getElementById('agg-similarity-value').textContent = defaults.name_similarity_threshold.toFixed(2);
+
+        document.getElementById('agg-enable-diags').checked = defaults.enable_diagnostics;
+
+        // Update UI state
+        toggleDeduplicationSlider();
+
+        console.log('Aggregation settings reset to defaults');
+
+    } catch (error) {
+        console.error('Error resetting aggregation settings:', error);
+        alert('Failed to load default settings: ' + error.message);
+    }
+}
+
 async function retryAggregation() {
     const retryBtn = event.target;
     retryBtn.disabled = true;
     retryBtn.textContent = 'Re-running...';
 
     try {
-        console.log('Retrying aggregation...');
-        const result = await apiCall('POST', '/aggregate', {});
+        console.log('Retrying aggregation with custom settings...');
+
+        // Collect settings from form
+        const settings = getAggregationSettings();
+        console.log('Aggregation settings:', settings);
+
+        const result = await apiCall('POST', '/aggregate', {
+            output_formats: ["json"],
+            aggregation_settings: settings
+        });
 
         currentJobIds.aggregate = result.job_id;
         console.log('Aggregation retry started:', result.job_id);

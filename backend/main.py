@@ -13,7 +13,7 @@ import uuid
 import os
 from pathlib import Path
 
-from app.models import init_db, get_session, ProcessingJob, Message, Conversation, Extraction
+from app.models import init_db, get_session, ProcessingJob, Message, Conversation, Extraction, AggregationSettings
 from app.pst_parser import PSTParser
 from app.ollama_client import OllamaClient
 from app.prompt_manager import PromptManager
@@ -174,8 +174,9 @@ class EnrichStatusResponse(BaseModel):
 
 
 class AggregateRequest(BaseModel):
-    """Request to start aggregation"""
+    """Request to start aggregation with optional settings override"""
     output_formats: list = ["json"]
+    aggregation_settings: Optional[AggregationSettings] = None
 
 
 class AggregateStatusResponse(BaseModel):
@@ -941,7 +942,7 @@ async def start_aggregation(request: AggregateRequest, background_tasks: Backgro
     """Start aggregation job to cluster projects and deduplicate stakeholders
 
     Args:
-        request: AggregateRequest with output formats
+        request: AggregateRequest with optional settings override
         background_tasks: FastAPI background tasks
 
     Returns:
@@ -969,9 +970,35 @@ async def start_aggregation(request: AggregateRequest, background_tasks: Backgro
         session.add(job)
         session.commit()
 
-        # Queue background task
+        # Prepare aggregation settings (merge request settings with config defaults)
+        aggregation_settings = None
+        if request.aggregation_settings:
+            # Convert Pydantic model to dict for merging
+            settings_dict = request.aggregation_settings.dict()
+
+            # Build merged config structure
+            aggregation_settings = {
+                "stakeholder_filtering": {
+                    "min_role_confidence": settings_dict["min_role_confidence"],
+                    "min_mention_count": settings_dict["min_mention_count"],
+                    "exclude_generic_names": settings_dict["exclude_generic_names"],
+                    "enable_name_deduplication": settings_dict["enable_name_deduplication"],
+                    "name_similarity_threshold": settings_dict["name_similarity_threshold"],
+                    "validate_email_domains": settings_dict["validate_email_domains"],
+                    "enable_filtering": True
+                },
+                "diagnostics": {
+                    "enable_diagnostics": settings_dict["enable_diagnostics"],
+                    "output_raw_extractions": True,
+                    "output_filter_log": True,
+                    "output_comparison": True
+                }
+            }
+            logger.info(f"Aggregation job {job_id}: Using custom settings from request")
+
+        # Queue background task with optional settings override
         if background_tasks:
-            background_tasks.add_task(_aggregate_data_task, job_id)
+            background_tasks.add_task(_aggregate_data_task, job_id, aggregation_settings)
 
         return {
             "job_id": job_id,
@@ -983,6 +1010,27 @@ async def start_aggregation(request: AggregateRequest, background_tasks: Backgro
         raise
     except Exception as e:
         logger.error(f"Error starting aggregation: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/config/aggregation-defaults")
+async def get_aggregation_defaults() -> dict:
+    """Return current aggregation default settings from config.json"""
+    try:
+        stakeholder_filtering = config.get("stakeholder_filtering", {})
+        diagnostics = config.get("diagnostics", {})
+
+        return {
+            "min_role_confidence": stakeholder_filtering.get("min_role_confidence", 0.65),
+            "min_mention_count": stakeholder_filtering.get("min_mention_count", 2),
+            "exclude_generic_names": stakeholder_filtering.get("exclude_generic_names", True),
+            "enable_name_deduplication": stakeholder_filtering.get("enable_name_deduplication", True),
+            "name_similarity_threshold": stakeholder_filtering.get("name_similarity_threshold", 0.80),
+            "validate_email_domains": stakeholder_filtering.get("validate_email_domains", True),
+            "enable_diagnostics": diagnostics.get("enable_diagnostics", True)
+        }
+    except Exception as e:
+        logger.error(f"Error fetching aggregation defaults: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1204,8 +1252,13 @@ def _enrich_messages_task(job_id: str, max_messages: Optional[int] = None, batch
             pass
 
 
-def _aggregate_data_task(job_id: str):
-    """Background task to aggregate projects and stakeholders"""
+def _aggregate_data_task(job_id: str, aggregation_settings: dict = None):
+    """Background task to aggregate projects and stakeholders
+
+    Args:
+        job_id: Unique job identifier
+        aggregation_settings: Optional dict of aggregation settings to override config.json defaults
+    """
     try:
         logger.info(f"Starting aggregation job: {job_id}")
 
@@ -1232,8 +1285,20 @@ def _aggregate_data_task(job_id: str):
             session.commit()
             return
 
-        # Initialize aggregation engine
-        aggregator = AggregationEngine(session, config)
+        # Prepare effective config (merge request settings with defaults)
+        effective_config = config.copy() if config else {}
+        if aggregation_settings:
+            if "stakeholder_filtering" not in effective_config:
+                effective_config["stakeholder_filtering"] = {}
+            if "diagnostics" not in effective_config:
+                effective_config["diagnostics"] = {}
+
+            effective_config["stakeholder_filtering"].update(aggregation_settings.get("stakeholder_filtering", {}))
+            effective_config["diagnostics"].update(aggregation_settings.get("diagnostics", {}))
+            logger.info(f"Aggregation job {job_id}: Using override settings")
+
+        # Initialize aggregation engine with effective config
+        aggregator = AggregationEngine(session, effective_config)
 
         # Run aggregation
         stats = aggregator.run_aggregation()

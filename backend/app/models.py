@@ -5,8 +5,57 @@ from sqlalchemy import Column, String, Integer, DateTime, Text, Boolean, Float, 
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 from datetime import datetime
+from pydantic import BaseModel, Field
+from typing import Optional
 
 Base = declarative_base()
+
+
+# ============================================================================
+# PYDANTIC MODELS (for request validation)
+# ============================================================================
+
+class AggregationSettings(BaseModel):
+    """Settings for aggregation pipeline - overrides config.json defaults"""
+    min_role_confidence: float = Field(
+        default=0.65,
+        ge=0.5,
+        le=0.95,
+        description="Minimum confidence score for stakeholder role inference (0.5-0.95)"
+    )
+    min_mention_count: int = Field(
+        default=2,
+        ge=1,
+        le=10,
+        description="Minimum number of mentions to include stakeholder (1-10)"
+    )
+    exclude_generic_names: bool = Field(
+        default=True,
+        description="Filter out generic names like 'User', 'Admin', 'Team'"
+    )
+    enable_name_deduplication: bool = Field(
+        default=True,
+        description="Merge similar stakeholder names across conversations"
+    )
+    name_similarity_threshold: float = Field(
+        default=0.80,
+        ge=0.5,
+        le=1.0,
+        description="Similarity threshold for name deduplication (0.5-1.0, higher = more strict)"
+    )
+    validate_email_domains: bool = Field(
+        default=True,
+        description="Filter out emails with invalid domains"
+    )
+    enable_diagnostics: bool = Field(
+        default=True,
+        description="Generate detailed diagnostic reports"
+    )
+
+
+# ============================================================================
+# SQLALCHEMY MODELS
+# ============================================================================
 
 
 class Conversation(Base):
