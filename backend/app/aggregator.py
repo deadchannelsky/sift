@@ -572,6 +572,8 @@ class StakeholderAggregator:
 
     def _is_generic_name(self, name: str) -> bool:
         """Check if name is a generic/placeholder name"""
+        if not name:
+            return False
         return name.lower() in self.GENERIC_NAMES
 
     def _get_name_similarity(self, name1: str, name2: str) -> float:
@@ -582,6 +584,9 @@ class StakeholderAggregator:
         - "Jane Smith" vs "Jane" (partial match)
         - "john.doe@company.com" vs "John Doe" (email vs name)
         """
+        if not name1 or not name2:
+            return 0.0
+
         n1 = name1.lower().strip()
         n2 = name2.lower().strip()
 
