@@ -175,21 +175,40 @@ class PostAggregationFilter:
                 logger.warning(f"Prompt not found: {prompt_id}, using fallback scoring")
                 return self._fallback_score(project)
 
+            # Safely extract nested values (defensive against malformed data)
+            aliases = project.get("aliases", [])
+            if not isinstance(aliases, list):
+                aliases = []
+
+            date_range = project.get("date_range", {})
+            if not isinstance(date_range, dict):
+                date_range = {}
+            date_range_first = date_range.get("first", "Unknown")
+            date_range_last = date_range.get("last", "Unknown")
+
+            confidence_dist = project.get("confidence_distribution", {})
+            if not isinstance(confidence_dist, dict):
+                confidence_dist = {}
+
+            stakeholders = project.get("stakeholders", [])
+            if not isinstance(stakeholders, list):
+                stakeholders = []
+
             # Substitute variables in prompt
             filled_prompt = prompt.substitute_variables({
                 "user_role": role_description,
-                "project_name": project.get("canonical_name", ""),
-                "project_aliases": ", ".join(project.get("aliases", [])),
-                "importance_tier": project.get("importance_tier", "UNKNOWN"),
-                "total_mentions": project.get("total_mentions", 0),
-                "avg_confidence": f"{project.get('avg_confidence', 0):.2f}",
-                "date_range_first": project.get("date_range", {}).get("first", "Unknown"),
-                "date_range_last": project.get("date_range", {}).get("last", "Unknown"),
-                "meeting_count": project.get("meeting_count", 0),
-                "confidence_high": project.get("confidence_distribution", {}).get("high", 0),
-                "confidence_medium": project.get("confidence_distribution", {}).get("medium", 0),
-                "confidence_low": project.get("confidence_distribution", {}).get("low", 0),
-                "stakeholder_list": self._format_stakeholders(project.get("stakeholders", []))
+                "project_name": str(project.get("canonical_name", "")),
+                "project_aliases": ", ".join([str(a) for a in aliases]),
+                "importance_tier": str(project.get("importance_tier", "UNKNOWN")),
+                "total_mentions": int(project.get("total_mentions", 0)),
+                "avg_confidence": f"{float(project.get('avg_confidence', 0)):.2f}",
+                "date_range_first": str(date_range_first),
+                "date_range_last": str(date_range_last),
+                "meeting_count": int(project.get("meeting_count", 0)),
+                "confidence_high": int(confidence_dist.get("high", 0)),
+                "confidence_medium": int(confidence_dist.get("medium", 0)),
+                "confidence_low": int(confidence_dist.get("low", 0)),
+                "stakeholder_list": self._format_stakeholders(stakeholders)
             })
 
             # Call LLM
@@ -236,19 +255,37 @@ class PostAggregationFilter:
 
     def _format_stakeholders(self, stakeholder_list: List[Dict]) -> str:
         """Format stakeholder list for LLM consumption"""
-        if not stakeholder_list:
+        if not stakeholder_list or not isinstance(stakeholder_list, list):
             return "No stakeholders identified"
 
         formatted = []
         for s in stakeholder_list[:10]:  # Limit to top 10 stakeholders
-            name = s.get("name", "Unknown")
-            email = s.get("email", "")
-            roles = s.get("inferred_roles", [])
-            role_str = ", ".join([f"{r.get('role')} ({r.get('confidence', 0):.2f})" for r in roles])
-            mentions = s.get("mention_count", 0)
-            formatted.append(f"- {name} ({email}): {role_str}, {mentions} mentions")
+            try:
+                if not isinstance(s, dict):
+                    continue
 
-        return "\n".join(formatted)
+                name = str(s.get("name", "Unknown"))
+                email = str(s.get("email", ""))
+                roles = s.get("inferred_roles", [])
+                if not isinstance(roles, list):
+                    roles = []
+
+                # Safely format roles
+                role_parts = []
+                for r in roles:
+                    if isinstance(r, dict):
+                        role_name = str(r.get("role", "Unknown"))
+                        conf = float(r.get("confidence", 0))
+                        role_parts.append(f"{role_name} ({conf:.2f})")
+                role_str = ", ".join(role_parts) if role_parts else "Unknown role"
+
+                mentions = int(s.get("mention_count", 0))
+                formatted.append(f"- {name} ({email}): {role_str}, {mentions} mentions")
+            except Exception as e:
+                logger.warning(f"Error formatting stakeholder: {e}")
+                continue
+
+        return "\n".join(formatted) if formatted else "No stakeholders identified"
 
     def _save_filter_result(
         self,
@@ -304,9 +341,18 @@ class PostAggregationFilter:
 
         Uses simple heuristics based on project metadata
         """
-        importance = project.get("importance_tier", "FYI")
-        mentions = project.get("total_mentions", 0)
-        avg_conf = project.get("avg_confidence", 0)
+        try:
+            importance = str(project.get("importance_tier", "FYI"))
+            mentions = int(project.get("total_mentions", 0))
+            avg_conf = float(project.get("avg_confidence", 0))
+        except (TypeError, ValueError):
+            # If values are malformed, use defaults
+            importance = "FYI"
+            mentions = 0
+            avg_conf = 0.0
+
+        # Clamp confidence to valid range
+        avg_conf = max(0.0, min(1.0, avg_conf))
 
         # Heuristic scoring
         confidence = avg_conf  # Use aggregation confidence as baseline
@@ -320,6 +366,9 @@ class PostAggregationFilter:
         # Reduce confidence if very few mentions
         if mentions < 2:
             confidence = max(0.0, confidence - 0.3)
+
+        # Final clamp
+        confidence = max(0.0, min(1.0, confidence))
 
         reasoning = [
             f"Fallback scoring (LLM unavailable)",
