@@ -55,6 +55,32 @@
     "output_filter_log": true,
     "output_comparison": true
   },
+  "post_aggregation_filter": {
+    "enable_filter": true,
+    "prompt_id": "task_post_aggregation_filter_v1",
+    "default_user_role": "IT Solution Architect",
+    "default_confidence_threshold": 0.75,
+    "batch_size": 5,
+    "available_roles": [
+      "IT Solution Architect",
+      "Product Manager",
+      "Software Engineer",
+      "Engineering Manager",
+      "DevOps Engineer",
+      "Data Engineer",
+      "Security Engineer",
+      "Other"
+    ],
+    "role_keywords": {
+      "IT Solution Architect": ["infrastructure", "cloud", "architecture", "migration", "integration", "design"],
+      "Product Manager": ["roadmap", "feature", "requirement", "priority", "user", "backlog"],
+      "Software Engineer": ["code", "implementation", "technical", "development", "bug", "performance"],
+      "Engineering Manager": ["team", "project", "schedule", "resource", "delivery", "capacity"],
+      "DevOps Engineer": ["deployment", "ci/cd", "infrastructure", "monitoring", "automation", "release"],
+      "Data Engineer": ["data", "pipeline", "analytics", "warehouse", "etl", "database"],
+      "Security Engineer": ["security", "compliance", "vulnerability", "audit", "access", "encryption"]
+    }
+  },
   "output": {
     "dir": "./data",
     "formats": ["json", "markdown", "csv"]

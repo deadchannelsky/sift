@@ -13,13 +13,14 @@ import uuid
 import os
 from pathlib import Path
 
-from app.models import init_db, get_session, ProcessingJob, Message, Conversation, Extraction, AggregationSettings
+from app.models import init_db, get_session, ProcessingJob, Message, Conversation, Extraction, AggregationSettings, ProjectClusterMetadata
 from app.pst_parser import PSTParser
 from app.ollama_client import OllamaClient
 from app.prompt_manager import PromptManager
 from app.enrichment import EnrichmentEngine
 from app.aggregator import AggregationEngine
 from app.reporter import ReporterEngine
+from app.post_aggregation_filter import PostAggregationFilter
 from app.file_upload import (
     sanitize_filename, validate_pst_file, check_disk_space,
     save_uploaded_file, cleanup_old_uploads, get_upload_stats
@@ -188,6 +189,26 @@ class AggregateStatusResponse(BaseModel):
     projects_found: int
     stakeholders_found: int
     progress_percent: float
+    error: Optional[str] = None
+
+
+class PostAggregationFilterRequest(BaseModel):
+    """Request to start post-aggregation quality filter"""
+    user_role: str = "IT Solution Architect"
+    confidence_threshold: float = 0.75  # Min confidence to include project
+
+
+class PostAggregationFilterStatusResponse(BaseModel):
+    """Status of post-aggregation filter job"""
+    job_id: str
+    status: str  # pending, processing, completed, failed
+    user_role: str
+    confidence_threshold: float
+    total_projects: int
+    processed_projects: int
+    progress_percent: float
+    projects_included: int
+    projects_excluded: int
     error: Optional[str] = None
 
 
@@ -1082,6 +1103,195 @@ async def get_aggregation_status(job_id: str) -> AggregateStatusResponse:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/post-aggregate-filter")
+async def start_post_aggregation_filter(
+    request: PostAggregationFilterRequest,
+    background_tasks: BackgroundTasks = None
+):
+    """
+    Start post-aggregation quality filter job
+
+    Evaluates aggregated projects for relevance to user role using LLM.
+    Returns confidence scores and reasoning for filtering decisions.
+
+    Args:
+        request: PostAggregationFilterRequest with user role and threshold
+        background_tasks: FastAPI background tasks
+
+    Returns:
+        Job ID and status
+    """
+    try:
+        # Load aggregated projects from JSON
+        output_dir = config.get("output", {}).get("dir", "./data")
+        projects_file = Path(output_dir) / "aggregated_projects.json"
+
+        if not projects_file.exists():
+            raise HTTPException(status_code=400, detail="No aggregated projects found. Run aggregation first.")
+
+        with open(projects_file, "r") as f:
+            aggregation_data = json_lib.load(f)
+
+        projects = aggregation_data.get("projects", [])
+
+        if not projects:
+            raise HTTPException(status_code=400, detail="No projects in aggregation output")
+
+        # Create job record (reuse ProcessingJob for simplicity)
+        job_id = str(uuid.uuid4())[:8]
+        db_path = get_db_path()
+        engine = init_db(db_path)
+        session = get_session(engine)
+
+        job = ProcessingJob(
+            job_id=job_id,
+            pst_filename="post_agg_filter",
+            status="queued",
+            total_messages=len(projects)  # Reuse for project count
+        )
+        session.add(job)
+        session.commit()
+
+        # Queue background task
+        if background_tasks:
+            background_tasks.add_task(
+                _post_aggregation_filter_task,
+                job_id,
+                request.user_role,
+                request.confidence_threshold,
+                projects
+            )
+
+        return {
+            "job_id": job_id,
+            "status": "queued",
+            "user_role": request.user_role,
+            "confidence_threshold": request.confidence_threshold,
+            "message": f"Filter job queued. Evaluating {len(projects)} projects"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error starting post-aggregation filter: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/post-aggregate-filter/{job_id}/status")
+async def get_post_aggregation_filter_status(job_id: str) -> PostAggregationFilterStatusResponse:
+    """Check post-aggregation filter job status"""
+    try:
+        db_path = get_db_path()
+        engine = init_db(db_path)
+        session = get_session(engine)
+
+        job = session.query(ProcessingJob).filter_by(job_id=job_id).first()
+
+        if not job:
+            raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+
+        progress_percent = (
+            (job.processed_messages / job.total_messages * 100)
+            if job.total_messages > 0
+            else 0
+        )
+
+        # Extract filter results from error_message field (used to store metadata)
+        user_role = "IT Solution Architect"
+        confidence_threshold = 0.75
+        projects_included = 0
+        projects_excluded = 0
+
+        if job.error_message and job.status == "completed":
+            try:
+                stats = json_lib.loads(job.error_message)
+                user_role = stats.get("user_role", user_role)
+                confidence_threshold = stats.get("confidence_threshold", confidence_threshold)
+                projects_included = stats.get("projects_included", 0)
+                projects_excluded = stats.get("projects_excluded", 0)
+            except:
+                pass
+
+        return PostAggregationFilterStatusResponse(
+            job_id=job.job_id,
+            status=job.status,
+            user_role=user_role,
+            confidence_threshold=confidence_threshold,
+            total_projects=job.total_messages,
+            processed_projects=job.processed_messages,
+            progress_percent=progress_percent,
+            projects_included=projects_included,
+            projects_excluded=projects_excluded,
+            error=None if job.status != "failed" else job.error_message
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting filter status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/post-aggregate-filter/results/summary")
+async def get_post_aggregation_filter_results():
+    """Get summary of last post-aggregation filter run"""
+    try:
+        db_path = get_db_path()
+        engine = init_db(db_path)
+        session = get_session(engine)
+
+        # Get all filter metadata
+        all_metadata = session.query(ProjectClusterMetadata).filter_by(
+            post_agg_filter_enabled=True
+        ).all()
+
+        if not all_metadata:
+            raise HTTPException(status_code=404, detail="No filter results found")
+
+        # Get latest filter run (by updated_at)
+        latest_run = max(all_metadata, key=lambda m: m.updated_at)
+
+        # Calculate statistics
+        total_projects = len(all_metadata)
+        excluded_projects = len([m for m in all_metadata if m.post_agg_filtered])
+        included_projects = total_projects - excluded_projects
+
+        confidences = [m.post_agg_confidence for m in all_metadata if m.post_agg_confidence is not None]
+        avg_confidence = sum(confidences) / len(confidences) if confidences else 0
+
+        # Get excluded projects with reasoning
+        excluded_with_reasoning = []
+        for m in all_metadata:
+            if m.post_agg_filtered:
+                try:
+                    reasoning = json_lib.loads(m.post_agg_reasoning) if m.post_agg_reasoning else []
+                except:
+                    reasoning = [m.post_agg_reasoning or "No reasoning available"]
+
+                excluded_with_reasoning.append({
+                    "name": m.cluster_canonical_name,
+                    "confidence": m.post_agg_confidence or 0,
+                    "reasoning": reasoning[0] if reasoning else "Unknown reason"
+                })
+
+        return {
+            "last_filter_run": latest_run.updated_at.isoformat() if latest_run else None,
+            "user_role": latest_run.post_agg_user_role if latest_run else "Unknown",
+            "confidence_threshold": latest_run.post_agg_user_threshold if latest_run else 0.75,
+            "total_projects": total_projects,
+            "included_projects": included_projects,
+            "excluded_projects": excluded_projects,
+            "confidence_avg": avg_confidence,
+            "excluded_projects_preview": excluded_with_reasoning[:10]  # Top 10 excluded
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting filter results: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ============================================================================
 # BACKGROUND TASKS
 # ============================================================================
@@ -1366,6 +1576,113 @@ if frontend_dir.exists():
     logger.info(f"✅ Frontend served from: {frontend_dir}")
 else:
     logger.warning(f"⚠️ Frontend directory not found: {frontend_dir}")
+
+
+def _post_aggregation_filter_task(
+    job_id: str,
+    user_role: str,
+    confidence_threshold: float,
+    projects: List[Dict]
+):
+    """
+    Background task to run post-aggregation quality filter
+
+    Evaluates aggregated projects for relevance to user role using LLM.
+    Stores results in ProjectClusterMetadata and updates job status.
+
+    Args:
+        job_id: Unique job identifier
+        user_role: User's role context for LLM evaluation
+        confidence_threshold: Min confidence to include project (0.0-1.0)
+        projects: List of aggregated project dicts from aggregation output
+    """
+    try:
+        logger.info(f"Starting post-aggregation filter job: {job_id}")
+
+        # Get database session and update job status
+        db_path = get_db_path()
+        engine = init_db(db_path)
+        session = get_session(engine)
+
+        job = session.query(ProcessingJob).filter_by(job_id=job_id).first()
+        if not job:
+            logger.error(f"Job not found: {job_id}")
+            return
+
+        job.status = "processing"
+        job.current_task = "post_aggregation_filter"
+        session.commit()
+
+        # Initialize filter
+        filter_engine = PostAggregationFilter(session, ollama_client, prompt_manager, config)
+
+        # Run filter
+        included_projects, excluded_projects, filter_results = filter_engine.filter_projects(
+            projects,
+            user_role,
+            confidence_threshold
+        )
+
+        # Store results in database
+        session.commit()
+
+        # Write filtered projects JSON
+        output_dir = config.get("output", {}).get("dir", "./data")
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+
+        # Write included projects to filtered_projects.json
+        filtered_output = {
+            "user_role": user_role,
+            "confidence_threshold": confidence_threshold,
+            "total_projects": len(projects),
+            "included_count": len(included_projects),
+            "excluded_count": len(excluded_projects),
+            "avg_confidence": filter_engine.stats.get("avg_confidence", 0),
+            "confidence_distribution": filter_engine.stats.get("confidence_distribution", {}),
+            "projects": included_projects,
+            "filter_results": filter_results
+        }
+
+        filtered_file = output_path / "filtered_projects.json"
+        with open(filtered_file, "w", encoding="utf-8") as f:
+            json_lib.dump(filtered_output, f, indent=2, ensure_ascii=False)
+
+        logger.info(f"Wrote filtered projects to {filtered_file}")
+
+        # Update job status with statistics
+        job.status = "completed"
+        job.processed_messages = len(projects)
+        job.error_message = json_lib.dumps({
+            "user_role": user_role,
+            "confidence_threshold": confidence_threshold,
+            "projects_included": len(included_projects),
+            "projects_excluded": len(excluded_projects),
+            "avg_confidence": filter_engine.stats.get("avg_confidence", 0)
+        })
+        session.commit()
+
+        logger.info(
+            f"Filter complete: job_id={job_id}, "
+            f"user_role={user_role}, "
+            f"included={len(included_projects)}, "
+            f"excluded={len(excluded_projects)}, "
+            f"avg_confidence={filter_engine.stats.get('avg_confidence', 0):.2f}"
+        )
+
+    except Exception as e:
+        logger.error(f"Error in post-aggregation filter task: {e}")
+        try:
+            db_path = get_db_path()
+            engine = init_db(db_path)
+            session = get_session(engine)
+            job = session.query(ProcessingJob).filter_by(job_id=job_id).first()
+            if job:
+                job.status = "failed"
+                job.error_message = str(e)
+                session.commit()
+        except:
+            pass
 
 
 # ============================================================================

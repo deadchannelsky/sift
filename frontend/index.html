@@ -465,6 +465,83 @@
                     </div>
                 </div>
 
+                <!-- Post-Aggregation Quality Filter Section -->
+                <div id="post-filter-section" style="display: none; margin-bottom: 20px; padding: 0; border: 2px solid #8b5cf6; border-radius: 5px; background: linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%); overflow: hidden; box-shadow: 0 2px 8px rgba(139, 92, 246, 0.1);">
+                    <div style="padding: 20px; border-bottom: 2px solid #e9d5ff; display: flex; align-items: center; gap: 12px;">
+                        <span style="font-size: 28px;">✨</span>
+                        <div style="flex-grow: 1;">
+                            <h4 style="margin: 0 0 5px 0; color: #5b21b6;">Post-Aggregation Quality Filter</h4>
+                            <p style="margin: 0; color: #7c3aed; font-size: 0.9em;">Use LLM to evaluate projects for role-based relevance and filter low-confidence results</p>
+                        </div>
+                    </div>
+
+                    <div style="padding: 20px;">
+                        <div class="form-group">
+                            <label style="font-weight: 600; margin-bottom: 8px;">User Role</label>
+                            <select id="post-filter-role" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 1em;">
+                                <option value="">Loading roles...</option>
+                            </select>
+                            <small style="color: #666; display: block; margin-top: 5px;">Select your role to evaluate project relevance</small>
+                        </div>
+
+                        <div class="form-group" style="margin-top: 20px;">
+                            <label style="font-weight: 600; margin-bottom: 8px;">Confidence Threshold: <span id="post-filter-threshold-value" style="color: #8b5cf6; font-weight: 700;">0.75</span></label>
+                            <input type="range" id="post-filter-threshold" min="0.0" max="1.0" step="0.05" value="0.75"
+                                   oninput="updateFilterThresholdDisplay(this.value)" style="width: 100%; margin-bottom: 8px;">
+                            <small style="color: #666; display: block;">Projects below this confidence will be hidden from reports (0.00-1.00, default 0.75)</small>
+                        </div>
+
+                        <div id="post-filter-progress" style="display: none; margin-top: 15px; padding: 15px; background-color: #f0f9ff; border: 1px solid #bfdbfe; border-radius: 4px;">
+                            <p style="margin: 0 0 10px 0; font-weight: 600; color: #1e40af;">Filtering projects...</p>
+                            <div style="display: flex; gap: 10px; align-items: center;">
+                                <div class="progress-bar" style="flex-grow: 1; height: 24px;">
+                                    <div id="post-filter-progress-bar" class="progress-fill" style="width: 0%; height: 100%;"></div>
+                                </div>
+                                <p id="post-filter-progress-text" style="margin: 0; min-width: 60px; text-align: right; font-weight: 600; color: #1e40af;">0%</p>
+                            </div>
+                            <p id="post-filter-progress-message" style="margin: 10px 0 0 0; font-size: 0.9em; color: #1e40af;"></p>
+                        </div>
+
+                        <div id="post-filter-results" style="display: none; margin-top: 15px; padding: 15px; background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 4px;">
+                            <h5 style="margin: 0 0 10px 0; color: #166534;">Filter Complete ✓</h5>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 15px;">
+                                <div style="background: white; padding: 10px; border-radius: 3px; text-align: center;">
+                                    <p style="margin: 0 0 5px 0; color: #666; font-size: 0.85em;">Total Projects</p>
+                                    <p style="margin: 0; font-size: 1.3em; font-weight: 700; color: #16a34a;" id="post-filter-total">-</p>
+                                </div>
+                                <div style="background: white; padding: 10px; border-radius: 3px; text-align: center;">
+                                    <p style="margin: 0 0 5px 0; color: #666; font-size: 0.85em;">Included</p>
+                                    <p style="margin: 0; font-size: 1.3em; font-weight: 700; color: #22c55e;" id="post-filter-included">-</p>
+                                </div>
+                                <div style="background: white; padding: 10px; border-radius: 3px; text-align: center;">
+                                    <p style="margin: 0 0 5px 0; color: #666; font-size: 0.85em;">Excluded</p>
+                                    <p style="margin: 0; font-size: 1.3em; font-weight: 700; color: #ef4444;" id="post-filter-excluded">-</p>
+                                </div>
+                            </div>
+                            <p style="margin: 0 0 10px 0; color: #666; font-size: 0.9em;">Average Confidence: <strong id="post-filter-avg-conf" style="color: #8b5cf6;">-</strong></p>
+
+                            <details style="cursor: pointer; margin-top: 15px;">
+                                <summary style="font-weight: 600; color: #5b21b6; padding: 8px; background: white; border-radius: 3px; user-select: none;">View Excluded Projects & Reasoning →</summary>
+                                <div id="post-filter-excluded-list" style="margin-top: 10px; max-height: 400px; overflow-y: auto;">
+                                    <!-- Excluded projects will be populated here -->
+                                </div>
+                            </details>
+                        </div>
+
+                        <div id="post-filter-error" class="alert alert-danger" style="display: none; margin-top: 15px;"></div>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div style="padding: 0 20px 20px 20px; border-top: 1px solid #e9d5ff; display: flex; gap: 10px; justify-content: flex-end;">
+                        <button type="button" class="btn btn-secondary" onclick="togglePostFilterSection()" style="margin-top: 0;">
+                            Collapse
+                        </button>
+                        <button type="button" id="start-post-filter-btn" class="btn btn-primary" onclick="startPostAggregationFilter()" style="margin-top: 0;">
+                            Run Quality Filter
+                        </button>
+                    </div>
+                </div>
+
                 <!-- Navigation Buttons -->
                 <div class="button-group">
                     <button class="btn btn-secondary" onclick="goToPipeline()">← Back to Pipeline</button>

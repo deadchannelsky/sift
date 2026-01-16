@@ -191,6 +191,32 @@ class ProcessingJob(Base):
         return f"<ProcessingJob(job_id={self.job_id}, status={self.status})>"
 
 
+class ProjectClusterMetadata(Base):
+    """Stores post-aggregation filter results for project clusters"""
+    __tablename__ = "project_cluster_metadata"
+
+    id = Column(Integer, primary_key=True)
+    cluster_canonical_name = Column(String(512), nullable=False, index=True, unique=True)
+
+    # Post-aggregation filter results
+    post_agg_filter_enabled = Column(Boolean, default=False)
+    post_agg_user_role = Column(String(100), nullable=True)  # Role used for filtering (IT Solution Architect, PM, etc.)
+    post_agg_confidence = Column(Float, nullable=True)  # 0.0-1.0 relevance score from LLM
+    post_agg_reasoning = Column(Text, nullable=True)  # Full reasoning chain from LLM
+    post_agg_is_relevant = Column(Boolean, nullable=True)  # True if LLM considers it relevant
+    post_agg_user_threshold = Column(Float, default=0.75)  # User-set confidence threshold for filtering
+    post_agg_filtered = Column(Boolean, default=False)  # True if hidden from reports due to low confidence
+    post_agg_filtered_at = Column(DateTime, nullable=True)
+    post_agg_filter_version = Column(String(50), nullable=True)  # Prompt version used (e.g., "task_post_aggregation_filter_v1")
+
+    # Tracking
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<ProjectClusterMetadata(name={self.cluster_canonical_name}, confidence={self.post_agg_confidence})>"
+
+
 def init_db(db_path: str = "data/messages.db"):
     """Initialize database and create all tables
 

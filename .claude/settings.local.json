@@ -16,7 +16,8 @@
       "Bash(python tests/test_reporting.py:*)",
       "Bash(sqlite3:*)",
       "Bash(ls -lah \"C:\\\\Users\\\\JasonTyler\\\\Documents\\\\PersonalCode\\\\sift\\\\backend\\\\data\"\" 2>&1 || echo \"Directory not found \")",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(python -m py_compile:*)"
     ]
   }
 }

@@ -1,0 +1,25 @@
+{
+  "prompt_id": "task_post_aggregation_filter_v1",
+  "version": "1.0.0",
+  "task": "post_aggregation_relevance_filter",
+  "description": "Evaluates aggregated project relevance and alignment with user role. Returns confidence score and reasoning for filtering decisions.",
+  "model_params": {
+    "temperature": 0.4,
+    "num_predict": 400,
+    "stop_sequences": []
+  },
+  "prompt_template": "You are evaluating aggregated email projects for relevance and alignment with a specific professional role.\n\nEVALUATION CONTEXT:\nUser Role: {user_role}\n\nPROJECT INFORMATION:\nCanonical Name: {project_name}\nAliases: {project_aliases}\nImportance Tier: {importance_tier}\nTotal Mentions: {total_mentions}\nAverage Confidence: {avg_confidence}\nDate Range: {date_range_first} to {date_range_last}\nMeeting Count: {meeting_count}\nConfidence Distribution: High={confidence_high}, Medium={confidence_medium}, Low={confidence_low}\n\nSTAKEHOLDERS:\n{stakeholder_list}\n\nTASK: Evaluate whether this project is relevant and authentic based on:\n1. Stakeholder roles and their alignment with the user's role\n2. Project importance tier and typical work patterns for this role\n3. Activity level: meeting frequency, mention volume, temporal engagement\n4. Domain alignment: Is this the kind of work this person would be involved with?\n5. Reality check: Does the aggregation metadata suggest this is a real project or noise?\n\nRESPOND ONLY WITH VALID JSON (no preamble, no markdown):\n\n{\n  \"is_relevant\": true,\n  \"confidence\": 0.87,\n  \"reasoning\": [\n    \"Reason 1: stakeholder and role alignment\",\n    \"Reason 2: project importance and domain fit\",\n    \"Reason 3: activity patterns and engagement\",\n    \"Reason 4: reality assessment\"\n  ],\n  \"recommendation\": \"INCLUDE or EXCLUDE\"\n}\n\nGUIDANCE FOR SCORING:\n- 0.90-1.00: Highly relevant, authentic project clearly aligned with role\n- 0.75-0.89: Relevant project, good alignment, minor uncertainty\n- 0.50-0.74: Possibly relevant but some concerns (unclear role fit, low activity, or potential noise)\n- 0.25-0.49: Probably not relevant (misaligned with role, suspicious patterns, or aggregation noise)\n- 0.00-0.24: Clearly not relevant (unrelated to role, evidence of spam/noise)\n\nEXAMPLE EVALUATION:\nIf user is \"IT Solution Architect\" and project is \"Cloud Migration Initiative\" with PM + Staff Engineer as stakeholders, high criticality, 24 mentions, 8 meetings over 10 weeks → HIGH confidence (0.85+)\n\nIf user is \"IT Solution Architect\" and project is \"Lunch Planning Committee\" with casual mentions, low importance tier, 3 emails over 2 months → LOW confidence (0.25)\n\nIf user is \"IT Solution Architect\" and project has inconsistent stakeholder roles, unclear purpose, only 1-2 mentions → MEDIUM-LOW confidence (0.40)",
+  "example_output": {
+    "is_relevant": true,
+    "confidence": 0.87,
+    "reasoning": [
+      "Stakeholder analysis: PM + Staff Engineer = technical decision-making required",
+      "Role alignment: Cloud infrastructure projects are core work for IT Solution Architects",
+      "Activity level: 24 mentions + 8 meetings over 10 weeks = sustained engagement, not noise",
+      "Importance tier: CRITICAL designation confirms strategic priority",
+      "Reality assessment: Aggregation metadata shows high confidence (0.87), consistent patterns"
+    ],
+    "recommendation": "INCLUDE"
+  },
+  "tags": ["production", "v1", "post_aggregation"]
+}

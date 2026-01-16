@@ -588,9 +588,13 @@ async function loadResults() {
             }
         }
 
-        // Show retry section if aggregation is complete (even if partial)
+        // Show retry section and post-filter section if aggregation is complete (even if partial)
         if (projectsLoaded || stakeholdersLoaded) {
             document.getElementById('aggregation-retry-section').style.display = 'block';
+            document.getElementById('post-filter-section').style.display = 'block';
+
+            // Load roles for the post-filter dropdown
+            loadPostFilterRoles();
         }
 
     } catch (error) {
@@ -1131,5 +1135,237 @@ function showError(elementId, message) {
     if (element) {
         element.textContent = message;
         element.style.display = 'block';
+    }
+}
+
+// ============================================================================
+// POST-AGGREGATION FILTER FUNCTIONS
+// ============================================================================
+
+let postFilterJobId = null;
+let postFilterPollInterval = null;
+
+/**
+ * Load available roles into the post-filter role selector
+ */
+async function loadPostFilterRoles() {
+    try {
+        // Fetch config to get available roles
+        const response = await apiCall('GET', '/config/aggregation-defaults');
+        const config = response.data || {};
+
+        const postFilterConfig = config.post_aggregation_filter || {};
+        const roles = postFilterConfig.available_roles || [];
+
+        const roleSelect = document.getElementById('post-filter-role');
+        roleSelect.innerHTML = '';
+
+        roles.forEach(role => {
+            const option = document.createElement('option');
+            option.value = role;
+            option.textContent = role;
+            roleSelect.appendChild(option);
+        });
+
+        // Set default role
+        const defaultRole = postFilterConfig.default_user_role || roles[0];
+        roleSelect.value = defaultRole;
+
+        console.log('Post-filter roles loaded:', roles);
+    } catch (error) {
+        console.error('Error loading post-filter roles:', error);
+    }
+}
+
+/**
+ * Toggle visibility of post-filter section and show results section
+ */
+function togglePostFilterSection() {
+    const section = document.getElementById('post-filter-section');
+    if (section.style.display === 'none') {
+        section.style.display = 'block';
+        loadPostFilterRoles();  // Load roles when opening
+    } else {
+        section.style.display = 'none';
+    }
+}
+
+/**
+ * Update displayed threshold value in real-time
+ */
+function updateFilterThresholdDisplay(value) {
+    const displayElement = document.getElementById('post-filter-threshold-value');
+    if (displayElement) {
+        const numValue = parseFloat(value);
+        displayElement.textContent = numValue.toFixed(2);
+    }
+}
+
+/**
+ * Start the post-aggregation filter job
+ */
+async function startPostAggregationFilter() {
+    const roleSelect = document.getElementById('post-filter-role');
+    const userRole = roleSelect.value;
+    const threshold = parseFloat(document.getElementById('post-filter-threshold').value);
+
+    if (!userRole) {
+        showError('post-filter-error', 'Please select a user role');
+        return;
+    }
+
+    // Disable button and show progress
+    const btn = document.getElementById('start-post-filter-btn');
+    btn.disabled = true;
+    btn.textContent = 'Starting filter...';
+
+    // Hide results/errors and show progress
+    document.getElementById('post-filter-results').style.display = 'none';
+    document.getElementById('post-filter-error').style.display = 'none';
+    document.getElementById('post-filter-progress').style.display = 'block';
+
+    try {
+        const result = await apiCall('POST', '/post-aggregate-filter', {
+            user_role: userRole,
+            confidence_threshold: threshold
+        });
+
+        postFilterJobId = result.job_id;
+        console.log('Post-aggregation filter started:', postFilterJobId);
+
+        // Start polling for progress
+        pollPostAggregationFilterStatus();
+
+    } catch (error) {
+        console.error('Error starting post-aggregation filter:', error);
+        showError('post-filter-error', 'Failed to start filter: ' + error.message);
+        btn.disabled = false;
+        btn.textContent = 'Run Quality Filter';
+        document.getElementById('post-filter-progress').style.display = 'none';
+    }
+}
+
+/**
+ * Poll for post-aggregation filter job status
+ */
+function pollPostAggregationFilterStatus() {
+    if (!postFilterJobId) return;
+
+    // Clear any existing interval
+    if (postFilterPollInterval) {
+        clearInterval(postFilterPollInterval);
+    }
+
+    // Immediately check status, then set interval
+    checkPostAggregationFilterStatus();
+    postFilterPollInterval = setInterval(checkPostAggregationFilterStatus, POLL_INTERVAL);
+}
+
+/**
+ * Check status of post-aggregation filter job
+ */
+async function checkPostAggregationFilterStatus() {
+    if (!postFilterJobId) return;
+
+    try {
+        const response = await apiCall('GET', `/post-aggregate-filter/${postFilterJobId}/status`);
+        const status = response.status || 'processing';
+        const stats = response.stats || {};
+
+        // Update progress bar
+        const progressPercent = stats.progress_percent || 0;
+        document.getElementById('post-filter-progress-bar').style.width = progressPercent + '%';
+        document.getElementById('post-filter-progress-text').textContent = progressPercent + '%';
+
+        // Update progress message
+        if (stats.projects_analyzed !== undefined) {
+            document.getElementById('post-filter-progress-message').textContent =
+                `Evaluated: ${stats.projects_analyzed} / ${stats.projects_total || '?'} projects`;
+        }
+
+        // Check if done
+        if (status === 'completed' || status === 'failed') {
+            clearInterval(postFilterPollInterval);
+            postFilterPollInterval = null;
+
+            if (status === 'completed') {
+                displayPostFilterResults();
+            } else {
+                showError('post-filter-error', 'Filter job failed: ' + (response.error || 'Unknown error'));
+                document.getElementById('post-filter-progress').style.display = 'none';
+            }
+
+            // Re-enable button
+            const btn = document.getElementById('start-post-filter-btn');
+            btn.disabled = false;
+            btn.textContent = 'Run Quality Filter';
+        }
+
+    } catch (error) {
+        console.error('Error checking post-filter status:', error);
+    }
+}
+
+/**
+ * Display post-aggregation filter results
+ */
+async function displayPostFilterResults() {
+    try {
+        // Fetch results
+        const response = await apiCall('GET', '/post-aggregate-filter/results/summary');
+        const results = response.results || {};
+
+        // Hide progress, show results
+        document.getElementById('post-filter-progress').style.display = 'none';
+        document.getElementById('post-filter-results').style.display = 'block';
+
+        // Update statistics
+        document.getElementById('post-filter-total').textContent = results.total_projects || 0;
+        document.getElementById('post-filter-included').textContent = results.projects_included || 0;
+        document.getElementById('post-filter-excluded').textContent = results.projects_excluded || 0;
+
+        const avgConf = results.avg_confidence !== undefined ? results.avg_confidence : 0;
+        document.getElementById('post-filter-avg-conf').textContent = (avgConf * 100).toFixed(1) + '%';
+
+        // Display excluded projects
+        const excludedList = document.getElementById('post-filter-excluded-list');
+        excludedList.innerHTML = '';
+
+        const excludedProjects = results.excluded_projects || [];
+        if (excludedProjects.length === 0) {
+            excludedList.innerHTML = '<p style="color: #666; font-style: italic;">No projects excluded - all projects passed the confidence threshold.</p>';
+        } else {
+            excludedProjects.forEach(project => {
+                const projectDiv = document.createElement('div');
+                projectDiv.style.cssText = 'background: white; padding: 12px; border: 1px solid #e5e7eb; border-radius: 3px; margin-bottom: 10px;';
+
+                const projectName = project.project_name || 'Unknown';
+                const confidence = project.confidence || 0;
+                const reasoning = project.reasoning || [];
+
+                projectDiv.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
+                        <h6 style="margin: 0; color: #1f2937; font-weight: 600;">${projectName}</h6>
+                        <span style="background: #fee2e2; color: #991b1b; padding: 2px 8px; border-radius: 3px; font-size: 0.85em; font-weight: 600;">
+                            ${(confidence * 100).toFixed(1)}% confidence
+                        </span>
+                    </div>
+                    <details style="cursor: pointer;">
+                        <summary style="color: #5b21b6; font-weight: 600; user-select: none; padding: 5px 0;">Reasoning Details</summary>
+                        <ul style="margin: 8px 0 0 0; padding-left: 20px; color: #666; font-size: 0.9em;">
+                            ${reasoning.map(reason => `<li style="margin: 4px 0;">${reason}</li>`).join('')}
+                        </ul>
+                    </details>
+                `;
+
+                excludedList.appendChild(projectDiv);
+            });
+        }
+
+        console.log('Post-filter results displayed:', results);
+
+    } catch (error) {
+        console.error('Error displaying post-filter results:', error);
+        showError('post-filter-error', 'Failed to display results: ' + error.message);
     }
 }
