@@ -109,6 +109,22 @@
                     </div>
                 </div>
 
+                <!-- Resume Pipeline Section (if enrichment already done) -->
+                <div id="pipeline-resume-section" style="display: none; margin-bottom: 20px; padding: 15px; border: 2px solid #28a745; border-radius: 5px; background-color: #f0f8f5;">
+                    <h3 style="color: #28a745; margin-top: 0;">✅ Resume Previous Pipeline</h3>
+                    <p id="resume-message" style="margin: 10px 0;"></p>
+                    <p id="resume-stats" style="margin: 10px 0; font-size: 0.9em; color: #666;"></p>
+                    <div class="button-group" style="margin-top: 15px;">
+                        <input type="hidden" id="resume-stage" value="">
+                        <button class="btn btn-success" onclick="resumePipeline(document.getElementById('resume-stage').value)">
+                            Resume Pipeline
+                        </button>
+                        <button class="btn btn-secondary" onclick="document.getElementById('pipeline-resume-section').style.display='none'">
+                            Start New Analysis Instead
+                        </button>
+                    </div>
+                </div>
+
                 <!-- Upload Button -->
                 <div class="button-group">
                     <button id="upload-btn" class="btn btn-primary" onclick="startUpload()" style="display: none;">

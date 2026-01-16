@@ -644,6 +644,80 @@ async def set_model(model_name: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/pipeline/resume")
+async def check_pipeline_resume():
+    """
+    Check if pipeline can be resumed from a previous stage
+
+    Returns:
+        {
+            "can_resume": bool,
+            "stage": "parse" | "enrich" | "aggregate" | null,
+            "message": "Description of what can be resumed",
+            "last_job_id": "job_id" | null,
+            "stats": {
+                "total_messages": int,
+                "pending_enrichment": int,
+                "completed_enrichment": int,
+                "conversations": int
+            }
+        }
+    """
+    try:
+        db_path = get_db_path()
+        engine = init_db(db_path)
+        session = get_session(engine)
+
+        message_count = session.query(Message).count()
+        conversation_count = session.query(Conversation).count()
+        pending_enrichment = session.query(Message).filter_by(enrichment_status="pending").count()
+        completed_enrichment = session.query(Message).filter_by(enrichment_status="completed").count()
+
+        # Get last job
+        last_job = session.query(ProcessingJob).order_by(ProcessingJob.created_at.desc()).first()
+
+        resume_stage = None
+        message = ""
+
+        if message_count > 0 and completed_enrichment > 0:
+            # Can jump to aggregation
+            resume_stage = "aggregate"
+            message = f"Resume at Aggregation: {completed_enrichment} messages enriched, ready to aggregate"
+        elif message_count > 0 and pending_enrichment > 0:
+            # Can jump to enrichment
+            resume_stage = "enrich"
+            message = f"Resume at Enrichment: {pending_enrichment} messages parsed, ready for enrichment"
+        elif message_count > 0:
+            # Messages exist but unclear state
+            resume_stage = "enrich"
+            message = f"Resume at Enrichment: {message_count} messages in database"
+
+        logger.info(f"Pipeline resume check: stage={resume_stage}, messages={message_count}, enriched={completed_enrichment}")
+
+        return {
+            "can_resume": resume_stage is not None,
+            "stage": resume_stage,
+            "message": message,
+            "last_job_id": last_job.job_id if last_job else None,
+            "stats": {
+                "total_messages": message_count,
+                "conversations": conversation_count,
+                "pending_enrichment": pending_enrichment,
+                "completed_enrichment": completed_enrichment
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Error checking pipeline resume status: {e}")
+        return {
+            "can_resume": False,
+            "stage": None,
+            "message": f"Error checking resume status: {str(e)}",
+            "last_job_id": None,
+            "stats": {}
+        }
+
+
 @app.get("/stats")
 async def get_stats():
     """Get database statistics"""

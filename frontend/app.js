@@ -45,6 +45,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await checkBackendStatus();
     loadModels();
     loadPSTFiles();  // Load list of previously uploaded PST files
+    await checkPipelineResume();  // Check if we can resume from previous stage
 
     // Set end date to today
     const today = new Date().toISOString().split('T')[0];
@@ -743,6 +744,52 @@ async function loadPSTFiles() {
     } catch (error) {
         console.error('Failed to load PST files:', error);
         // Silently fail - don't show error if files can't be loaded
+    }
+}
+
+async function checkPipelineResume() {
+    // Check if pipeline can be resumed from a previous stage
+    try {
+        const resumeStatus = await apiCall('GET', '/pipeline/resume');
+
+        if (resumeStatus.can_resume && resumeStatus.stage) {
+            console.log('Pipeline resumable at stage:', resumeStatus.stage);
+
+            // Show resume section
+            const resumeSection = document.getElementById('pipeline-resume-section');
+            if (resumeSection) {
+                resumeSection.style.display = 'block';
+                document.getElementById('resume-message').textContent = resumeStatus.message;
+                document.getElementById('resume-stage').value = resumeStatus.stage;
+
+                // Show stats
+                const stats = resumeStatus.stats;
+                if (stats) {
+                    const statsText = `Messages: ${stats.total_messages}, ` +
+                        `Conversations: ${stats.conversations}, ` +
+                        `Enriched: ${stats.completed_enrichment}/${stats.total_messages}`;
+                    document.getElementById('resume-stats').textContent = statsText;
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Error checking pipeline resume status:', error);
+    }
+}
+
+function resumePipeline(stage) {
+    // Jump into pipeline at specified stage
+    if (stage === 'enrich') {
+        // Start enrichment directly
+        console.log('Resuming at enrichment stage...');
+        currentJobIds.parse = 'resume-mode';
+        goToPipeline();
+        startEnrichment();
+    } else if (stage === 'aggregate') {
+        // Start aggregation directly
+        console.log('Resuming at aggregation stage...');
+        goToPipeline();
+        startAggregation();
     }
 }
 
