@@ -147,6 +147,10 @@ class EnrichmentEngine:
                 result = ExtractionResult(task_name, prompt_id, response)
                 result.processing_time_ms = int(processing_time)
 
+                # Validate stakeholder extractions against actual message recipients
+                if task_name == "task_b_stakeholders":
+                    result = self.validate_stakeholder_extraction(result, message)
+
                 results[task_name] = result
 
             except Exception as e:
@@ -156,6 +160,81 @@ class EnrichmentEngine:
                 results[task_name] = result
 
         return results
+
+    def validate_stakeholder_extraction(
+        self,
+        extraction_result: ExtractionResult,
+        message: Message
+    ) -> ExtractionResult:
+        """
+        Validate stakeholder extractions against actual message recipients
+
+        Filters out hallucinated emails that don't appear in message.recipients or message.cc
+
+        Args:
+            extraction_result: Raw LLM extraction result
+            message: Original message with real recipient data
+
+        Returns:
+            Filtered ExtractionResult with only valid stakeholders
+        """
+        if not extraction_result.is_valid() or not extraction_result.parsed_json:
+            return extraction_result
+
+        # Build set of valid emails from message
+        valid_emails = set()
+
+        # Add sender
+        if message.sender_email:
+            valid_emails.add(message.sender_email.lower().strip())
+
+        # Add recipients
+        if message.recipients:
+            for email in message.recipients.split(','):
+                email = email.strip().lower()
+                if email:
+                    valid_emails.add(email)
+
+        # Add CC
+        if message.cc:
+            for email in message.cc.split(','):
+                email = email.strip().lower()
+                if email:
+                    valid_emails.add(email)
+
+        # Filter extractions
+        original_json = extraction_result.parsed_json
+        if "extractions" not in original_json:
+            return extraction_result
+
+        filtered_extractions = []
+        rejected_count = 0
+
+        for stakeholder in original_json["extractions"]:
+            extracted_email = stakeholder.get("email", "").lower().strip()
+
+            if extracted_email in valid_emails:
+                # Valid - keep it
+                filtered_extractions.append(stakeholder)
+            else:
+                # Hallucinated - log and reject
+                rejected_count += 1
+                logger.warning(
+                    f"REJECTED hallucinated stakeholder: {stakeholder.get('stakeholder')} "
+                    f"({extracted_email}) - not in message recipients. "
+                    f"Valid emails: {valid_emails}"
+                )
+
+        # Update extraction result
+        extraction_result.parsed_json["extractions"] = filtered_extractions
+
+        if rejected_count > 0:
+            logger.info(
+                f"Stakeholder validation: {len(filtered_extractions)} valid, "
+                f"{rejected_count} rejected (hallucinated)"
+            )
+
+        return extraction_result
 
     def store_extractions(self, message_id: int, msg_id: str, results: Dict[str, ExtractionResult]):
         """Store extraction results in database

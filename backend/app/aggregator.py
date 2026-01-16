@@ -446,9 +446,18 @@ class StakeholderAggregator:
 
     # Generic/placeholder names to filter
     GENERIC_NAMES = {
-        "john doe", "jane smith", "jane doe", "john smith", "michael chen",
-        "emily davis", "alice brown", "bob johnson", "david lee", "sarah johnson",
-        "michael johnson", "alice johnson", "corporate stakeholders", "stakeholder"
+        # Common placeholders
+        "john doe", "jane smith", "jane doe", "john smith",
+        "michael chen", "emily davis", "alice brown", "bob johnson",
+        "david lee", "sarah johnson", "michael johnson", "alice johnson",
+
+        # Generic titles
+        "corporate stakeholders", "stakeholder", "team member",
+        "employee", "manager", "director", "engineer", "admin",
+
+        # Suspicious patterns
+        "unknown", "user", "recipient", "sender", "customer",
+        "client", "partner", "vendor", "external"
     }
 
     def __init__(self, config: Dict = None):
@@ -612,6 +621,48 @@ class StakeholderAggregator:
         ratio = SequenceMatcher(None, n1, n2).ratio()
         return ratio
 
+    def _is_valid_email_domain(self, email: str) -> bool:
+        """
+        Validate email domain structure - reject placeholder domains
+
+        Returns False for:
+        - Invalid email format
+        - Placeholder domains (example.com, test.com, etc.)
+        - Malformed domains (no dot, no TLD)
+        """
+        if not email or '@' not in email:
+            return False
+
+        # Blocked placeholder domains
+        blocked_domains = {
+            'example.com', 'test.com', 'sample.com',
+            'placeholder.com', 'domain.com', 'email.com',
+            'company.com', 'work.com', 'business.com',
+            'localhost', 'local'
+        }
+
+        try:
+            local, domain = email.rsplit('@', 1)
+            domain = domain.lower().strip()
+
+            # Check blocked list
+            if domain in blocked_domains:
+                return False
+
+            # Basic structure validation
+            if '.' not in domain:
+                return False
+
+            # Must have valid TLD (at least 2 chars)
+            tld = domain.split('.')[-1]
+            if len(tld) < 2:
+                return False
+
+            return True
+
+        except Exception:
+            return False
+
     def _deduplicate_by_name(self) -> Dict[str, str]:
         """
         Deduplicate stakeholders by name similarity
@@ -745,6 +796,13 @@ class StakeholderAggregator:
                 if config.get("exclude_generic_names", False):
                     if self._is_generic_name(profile_json["name"]):
                         logger.info(f"Filtering generic name: {profile_json['name']} ({profile_json['email']})")
+                        filtered_count += 1
+                        continue
+
+                # Step 5: Filter invalid email domains
+                if config.get("validate_email_domains", False):
+                    if not self._is_valid_email_domain(profile_json["email"]):
+                        logger.info(f"Filtering invalid domain: {profile_json['name']} ({profile_json['email']})")
                         filtered_count += 1
                         continue
 
@@ -1064,6 +1122,99 @@ class AggregationEngine:
         # Update stats
         self.stats["projects_found"] = len(projects_data["projects"])
         self.stats["stakeholders_found"] = len(stakeholders_data["stakeholders"])
+
+        # Write diagnostic outputs if enabled
+        self.write_diagnostic_outputs(output_dir)
+
+    def write_diagnostic_outputs(self, output_dir: str):
+        """
+        Write diagnostic files for troubleshooting stakeholder hallucination
+
+        Outputs:
+        - raw_stakeholder_extractions.json: All extractions before deduplication
+        - filter_decisions.log: Why each stakeholder was kept/rejected
+        - aggregation_comparison.json: Side-by-side raw vs filtered
+        """
+        config = self.config.get("diagnostics", {})
+        if not config.get("enable_diagnostics", False):
+            return
+
+        from pathlib import Path
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+
+        try:
+            # 1. Raw extractions dump
+            raw_extractions = []
+            for profile in self.stakeholder_aggregator.stakeholders.values():
+                raw_extractions.append({
+                    "email": profile.email,
+                    "name": profile.name,
+                    "message_count": profile.message_count,
+                    "roles": profile.inferred_roles,
+                    "projects": list(profile.projects)
+                })
+
+            raw_file = output_path / "raw_stakeholder_extractions.json"
+            with open(raw_file, "w", encoding="utf-8") as f:
+                json.dump({
+                    "total_raw": len(raw_extractions),
+                    "stakeholders": sorted(raw_extractions, key=lambda x: x["message_count"], reverse=True)
+                }, f, indent=2, ensure_ascii=False)
+            logger.info(f"Wrote diagnostic: {raw_file}")
+
+            # 2. Filter decisions log
+            stakeholder_data = self.stakeholder_aggregator.to_json()
+            kept_emails = {s["email"] for s in stakeholder_data["stakeholders"]}
+
+            filter_log = output_path / "filter_decisions.log"
+            with open(filter_log, "w", encoding="utf-8") as f:
+                f.write("STAKEHOLDER FILTER DECISIONS\n")
+                f.write("=" * 80 + "\n\n")
+
+                for profile in self.stakeholder_aggregator.stakeholders.values():
+                    profile_json = profile.to_json()
+
+                    if profile.email in kept_emails:
+                        f.write(f"✓ KEPT: {profile_json['name']} ({profile_json['email']})\n")
+                        f.write(f"  Messages: {profile_json['message_count']}\n\n")
+                    else:
+                        f.write(f"✗ REJECTED: {profile_json['name']} ({profile_json['email']})\n")
+
+                        # Determine rejection reason
+                        reasons = []
+
+                        if profile_json["inferred_roles"]:
+                            avg_conf = sum(r["confidence"] for r in profile_json["inferred_roles"]) / len(profile_json["inferred_roles"])
+                            if avg_conf < 0.65:
+                                reasons.append(f"Low confidence: {avg_conf:.2f}")
+
+                        if profile_json["message_count"] < 2:
+                            reasons.append(f"Low mentions: {profile_json['message_count']}")
+
+                        if self.stakeholder_aggregator._is_generic_name(profile_json["name"]):
+                            reasons.append("Generic/placeholder name")
+
+                        if not self.stakeholder_aggregator._is_valid_email_domain(profile_json["email"]):
+                            reasons.append("Invalid email domain")
+
+                        f.write(f"  Reasons: {'; '.join(reasons)}\n\n")
+
+            logger.info(f"Wrote diagnostic: {filter_log}")
+
+            # 3. Comparison view
+            comparison_file = output_path / "aggregation_comparison.json"
+            with open(comparison_file, "w", encoding="utf-8") as f:
+                json.dump({
+                    "raw": {"total": len(raw_extractions), "stakeholders": raw_extractions[:20]},
+                    "filtered": {"total": len(stakeholder_data["stakeholders"]), "stakeholders": stakeholder_data["stakeholders"][:20]},
+                    "diff": {"removed": len(raw_extractions) - len(stakeholder_data["stakeholders"])}
+                }, f, indent=2, ensure_ascii=False)
+
+            logger.info(f"Wrote diagnostic: {comparison_file}")
+
+        except Exception as e:
+            logger.error(f"Error writing diagnostic outputs: {e}")
 
     def __repr__(self):
         return f"AggregationEngine(db_session={self.db})"
