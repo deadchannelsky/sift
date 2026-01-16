@@ -28,6 +28,38 @@
                 <h2>Upload or Select PST File</h2>
                 <p class="help-text">Upload a new Outlook PST file or select a previously uploaded file. Supports files up to 10GB.</p>
 
+                <!-- Resume Pipeline Section (PROMINENTLY FIRST) -->
+                <div id="pipeline-resume-section" style="display: none; margin-bottom: 30px; padding: 20px; border: 3px solid #28a745; border-radius: 8px; background-color: #f0fdf4; box-shadow: 0 4px 6px rgba(40, 167, 69, 0.1);">
+                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
+                        <span style="font-size: 32px;">⏮️</span>
+                        <h3 style="color: #28a745; margin: 0; flex-grow: 1;">Resume Previous Analysis</h3>
+                    </div>
+                    <p id="resume-message" style="margin: 10px 0; font-size: 1em; color: #333;"></p>
+                    <p id="resume-stats" style="margin: 10px 0; font-size: 0.95em; color: #666; font-weight: 500;"></p>
+                    <div class="button-group" style="margin-top: 20px; gap: 10px;">
+                        <input type="hidden" id="resume-stage" value="">
+                        <button class="btn btn-success" onclick="resumePipeline(document.getElementById('resume-stage').value)" style="font-weight: bold; font-size: 1.05em; padding: 12px 24px;">
+                            Continue Analysis →
+                        </button>
+                        <button class="btn btn-outline-secondary" onclick="toggleResumeOptions()" style="font-size: 1em; padding: 10px 20px;">
+                            Start Fresh Instead
+                        </button>
+                    </div>
+                </div>
+
+                <!-- New Analysis Confirmation (shown when dismissing resume) -->
+                <div id="new-analysis-confirm" style="display: none; margin-bottom: 30px; padding: 15px; border: 1px solid #ffc107; border-radius: 5px; background-color: #fffbf0;">
+                    <p style="margin: 0; color: #856404;">
+                        <strong>⚠️ Starting fresh analysis will:</strong><br>
+                        • Parse the PST file again<br>
+                        • Replace any existing parsed messages (unless you uncheck "Clear database")<br>
+                        <span id="existing-enrichment-warning" style="display: none;">• Discard previously enriched data</span>
+                    </p>
+                    <button class="btn btn-secondary btn-small" onclick="toggleResumeOptions()" style="margin-top: 10px;">
+                        Back to Resume Option
+                    </button>
+                </div>
+
                 <!-- Existing Files Selection -->
                 <div id="existing-files-section" style="margin-bottom: 30px; display: none;">
                     <h3>Recently Uploaded Files</h3>
@@ -106,22 +138,6 @@
                             <span>Clear existing database before parsing</span>
                         </label>
                         <small style="color: #dc3545;">⚠️ Warning: This will permanently delete all previously parsed messages, conversations, and enrichment data</small>
-                    </div>
-                </div>
-
-                <!-- Resume Pipeline Section (if enrichment already done) -->
-                <div id="pipeline-resume-section" style="display: none; margin-bottom: 20px; padding: 15px; border: 2px solid #28a745; border-radius: 5px; background-color: #f0f8f5;">
-                    <h3 style="color: #28a745; margin-top: 0;">✅ Resume Previous Pipeline</h3>
-                    <p id="resume-message" style="margin: 10px 0;"></p>
-                    <p id="resume-stats" style="margin: 10px 0; font-size: 0.9em; color: #666;"></p>
-                    <div class="button-group" style="margin-top: 15px;">
-                        <input type="hidden" id="resume-stage" value="">
-                        <button class="btn btn-success" onclick="resumePipeline(document.getElementById('resume-stage').value)">
-                            Resume Pipeline
-                        </button>
-                        <button class="btn btn-secondary" onclick="document.getElementById('pipeline-resume-section').style.display='none'">
-                            Start New Analysis Instead
-                        </button>
                     </div>
                 </div>
 

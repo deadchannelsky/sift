@@ -755,25 +755,63 @@ async function checkPipelineResume() {
         if (resumeStatus.can_resume && resumeStatus.stage) {
             console.log('Pipeline resumable at stage:', resumeStatus.stage);
 
-            // Show resume section
+            // Show resume section prominently at top
             const resumeSection = document.getElementById('pipeline-resume-section');
             if (resumeSection) {
                 resumeSection.style.display = 'block';
                 document.getElementById('resume-message').textContent = resumeStatus.message;
                 document.getElementById('resume-stage').value = resumeStatus.stage;
 
-                // Show stats
+                // Show stats with better formatting
                 const stats = resumeStatus.stats;
                 if (stats) {
-                    const statsText = `Messages: ${stats.total_messages}, ` +
-                        `Conversations: ${stats.conversations}, ` +
-                        `Enriched: ${stats.completed_enrichment}/${stats.total_messages}`;
+                    const statsText = `📊 ${stats.total_messages} messages • ${stats.conversations} conversations • ${stats.completed_enrichment}/${stats.total_messages} enriched`;
                     document.getElementById('resume-stats').textContent = statsText;
+                }
+
+                // Hide upload zone since they should resume first
+                document.getElementById('upload-zone').style.display = 'none';
+                document.getElementById('existing-files-section').style.display = 'none';
+                document.getElementById('config-section').style.display = 'none';
+                document.getElementById('upload-btn').style.display = 'none';
+
+                // Show warning about enrichment loss if they choose fresh start
+                if (stats && stats.completed_enrichment > 0) {
+                    document.getElementById('existing-enrichment-warning').style.display = 'block';
                 }
             }
         }
     } catch (error) {
         console.error('Error checking pipeline resume status:', error);
+    }
+}
+
+function toggleResumeOptions() {
+    // Toggle between resume section and new analysis confirmation
+    const resumeSection = document.getElementById('pipeline-resume-section');
+    const confirmSection = document.getElementById('new-analysis-confirm');
+    const uploadZone = document.getElementById('upload-zone');
+    const existingFiles = document.getElementById('existing-files-section');
+    const configSection = document.getElementById('config-section');
+    const uploadBtn = document.getElementById('upload-btn');
+
+    if (resumeSection.style.display === 'none') {
+        // Show resume, hide confirmation and upload
+        resumeSection.style.display = 'block';
+        confirmSection.style.display = 'none';
+        uploadZone.style.display = 'none';
+        existingFiles.style.display = 'none';
+        configSection.style.display = 'none';
+        uploadBtn.style.display = 'none';
+    } else {
+        // Show upload, hide resume and confirmation
+        resumeSection.style.display = 'none';
+        confirmSection.style.display = 'block';
+        uploadZone.style.display = 'block';
+        existingFiles.style.display = existingFiles.innerHTML ? 'block' : 'none';
+        configSection.style.display = 'block';
+        uploadBtn.style.display = 'inline-block';
+        clearFile(); // Reset upload form
     }
 }
 

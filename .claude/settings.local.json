@@ -13,7 +13,9 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(ls -la \"C:\\\\Users\\\\JasonTyler\\\\Documents\\\\PersonalCode\\\\sift\\\\prompts\"\" 2>/dev/null || echo \"Checking prompts... \")",
       "Bash(python tests/test_aggregate.py:*)",
-      "Bash(python tests/test_reporting.py:*)"
+      "Bash(python tests/test_reporting.py:*)",
+      "Bash(sqlite3:*)",
+      "Bash(ls -lah \"C:\\\\Users\\\\JasonTyler\\\\Documents\\\\PersonalCode\\\\sift\\\\backend\\\\data\"\" 2>&1 || echo \"Directory not found \")"
     ]
   }
 }
