@@ -194,7 +194,7 @@ class AggregateStatusResponse(BaseModel):
 
 class PostAggregationFilterRequest(BaseModel):
     """Request to start post-aggregation quality filter"""
-    user_role: str = "IT Solution Architect"
+    role_description: str  # Free-text description of user's role and responsibilities
     confidence_threshold: float = 0.75  # Min confidence to include project
 
 
@@ -202,7 +202,7 @@ class PostAggregationFilterStatusResponse(BaseModel):
     """Status of post-aggregation filter job"""
     job_id: str
     status: str  # pending, processing, completed, failed
-    user_role: str
+    role_description: str
     confidence_threshold: float
     total_projects: int
     processed_projects: int
@@ -1157,7 +1157,7 @@ async def start_post_aggregation_filter(
             background_tasks.add_task(
                 _post_aggregation_filter_task,
                 job_id,
-                request.user_role,
+                request.role_description,
                 request.confidence_threshold,
                 projects
             )
@@ -1165,7 +1165,7 @@ async def start_post_aggregation_filter(
         return {
             "job_id": job_id,
             "status": "queued",
-            "user_role": request.user_role,
+            "role_description": request.role_description,
             "confidence_threshold": request.confidence_threshold,
             "message": f"Filter job queued. Evaluating {len(projects)} projects"
         }
@@ -1197,7 +1197,7 @@ async def get_post_aggregation_filter_status(job_id: str) -> PostAggregationFilt
         )
 
         # Extract filter results from error_message field (used to store metadata)
-        user_role = "IT Solution Architect"
+        role_description = "User role description"
         confidence_threshold = 0.75
         projects_included = 0
         projects_excluded = 0
@@ -1205,7 +1205,7 @@ async def get_post_aggregation_filter_status(job_id: str) -> PostAggregationFilt
         if job.error_message and job.status == "completed":
             try:
                 stats = json_lib.loads(job.error_message)
-                user_role = stats.get("user_role", user_role)
+                role_description = stats.get("role_description", role_description)
                 confidence_threshold = stats.get("confidence_threshold", confidence_threshold)
                 projects_included = stats.get("projects_included", 0)
                 projects_excluded = stats.get("projects_excluded", 0)
@@ -1215,7 +1215,7 @@ async def get_post_aggregation_filter_status(job_id: str) -> PostAggregationFilt
         return PostAggregationFilterStatusResponse(
             job_id=job.job_id,
             status=job.status,
-            user_role=user_role,
+            role_description=role_description,
             confidence_threshold=confidence_threshold,
             total_projects=job.total_messages,
             processed_projects=job.processed_messages,
@@ -1580,19 +1580,19 @@ else:
 
 def _post_aggregation_filter_task(
     job_id: str,
-    user_role: str,
+    role_description: str,
     confidence_threshold: float,
     projects: List[Dict]
 ):
     """
     Background task to run post-aggregation quality filter
 
-    Evaluates aggregated projects for relevance to user role using LLM.
+    Evaluates aggregated projects for relevance to user's role using LLM.
     Stores results in ProjectClusterMetadata and updates job status.
 
     Args:
         job_id: Unique job identifier
-        user_role: User's role context for LLM evaluation
+        role_description: User's role and responsibilities (free-text description)
         confidence_threshold: Min confidence to include project (0.0-1.0)
         projects: List of aggregated project dicts from aggregation output
     """
@@ -1619,7 +1619,7 @@ def _post_aggregation_filter_task(
         # Run filter
         included_projects, excluded_projects, filter_results = filter_engine.filter_projects(
             projects,
-            user_role,
+            role_description,
             confidence_threshold
         )
 
@@ -1633,7 +1633,7 @@ def _post_aggregation_filter_task(
 
         # Write included projects to filtered_projects.json
         filtered_output = {
-            "user_role": user_role,
+            "role_description": role_description,
             "confidence_threshold": confidence_threshold,
             "total_projects": len(projects),
             "included_count": len(included_projects),
@@ -1654,7 +1654,7 @@ def _post_aggregation_filter_task(
         job.status = "completed"
         job.processed_messages = len(projects)
         job.error_message = json_lib.dumps({
-            "user_role": user_role,
+            "role_description": role_description,
             "confidence_threshold": confidence_threshold,
             "projects_included": len(included_projects),
             "projects_excluded": len(excluded_projects),
@@ -1664,7 +1664,7 @@ def _post_aggregation_filter_task(
 
         logger.info(
             f"Filter complete: job_id={job_id}, "
-            f"user_role={user_role}, "
+            f"role_description_length={len(role_description)}, "
             f"included={len(included_projects)}, "
             f"excluded={len(excluded_projects)}, "
             f"avg_confidence={filter_engine.stats.get('avg_confidence', 0):.2f}"

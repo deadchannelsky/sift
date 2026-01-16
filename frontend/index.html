@@ -477,11 +477,11 @@
 
                     <div style="padding: 20px;">
                         <div class="form-group">
-                            <label style="font-weight: 600; margin-bottom: 8px;">User Role</label>
-                            <select id="post-filter-role" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 1em;">
-                                <option value="">Loading roles...</option>
-                            </select>
-                            <small style="color: #666; display: block; margin-top: 5px;">Select your role to evaluate project relevance</small>
+                            <label style="font-weight: 600; margin-bottom: 8px;">Your Role & Responsibilities</label>
+                            <textarea id="post-filter-role" placeholder="e.g., Solution Architect, responsible for PoC and MVP presales engineering and projects. Focus on cloud infrastructure, migration strategy, and technical decision-making."
+                                      style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 1em; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; resize: vertical; min-height: 80px;"
+                                      rows="4"></textarea>
+                            <small style="color: #666; display: block; margin-top: 5px;">Describe your role and key responsibilities. The LLM will use this to evaluate project relevance.</small>
                         </div>
 
                         <div class="form-group" style="margin-top: 20px;">

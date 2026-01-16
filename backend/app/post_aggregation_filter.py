@@ -54,15 +54,15 @@ class PostAggregationFilter:
     def filter_projects(
         self,
         aggregated_projects: List[Dict],
-        user_role: str,
+        role_description: str,
         confidence_threshold: float = 0.75
     ) -> Tuple[List[Dict], List[Dict], Dict]:
         """
-        Filter aggregated projects based on relevance to user role
+        Filter aggregated projects based on relevance to user's role
 
         Args:
             aggregated_projects: List of project dicts from aggregated_projects.json
-            user_role: User's role (e.g., "IT Solution Architect", "PM", "Engineer")
+            role_description: User's role and responsibilities (free-text description)
             confidence_threshold: Min confidence to include project (0.0-1.0)
 
         Returns:
@@ -73,7 +73,7 @@ class PostAggregationFilter:
         excluded_projects = []
         filter_results = {}
 
-        logger.info(f"Starting post-aggregation filter: role={user_role}, threshold={confidence_threshold:.2f}")
+        logger.info(f"Starting post-aggregation filter: role_desc_length={len(role_description)}, threshold={confidence_threshold:.2f}")
 
         try:
             for project in aggregated_projects:
@@ -82,13 +82,13 @@ class PostAggregationFilter:
 
                     # Call LLM to evaluate relevance
                     confidence, is_relevant, reasoning = self._evaluate_project_relevance(
-                        project, user_role
+                        project, role_description
                     )
 
                     # Store result in database
                     self._save_filter_result(
                         project_name,
-                        user_role,
+                        role_description,
                         confidence,
                         is_relevant,
                         reasoning,
@@ -150,14 +150,14 @@ class PostAggregationFilter:
     def _evaluate_project_relevance(
         self,
         project: Dict,
-        user_role: str
+        role_description: str
     ) -> Tuple[float, bool, List[str]]:
         """
-        Use LLM to evaluate project relevance to user role
+        Use LLM to evaluate project relevance to user's role
 
         Args:
             project: Project dict from aggregated output
-            user_role: User's role context
+            role_description: User's role and responsibilities (free-text description)
 
         Returns:
             Tuple of (confidence_score, is_relevant_bool, reasoning_list)
@@ -177,7 +177,7 @@ class PostAggregationFilter:
 
             # Substitute variables in prompt
             filled_prompt = prompt.substitute_variables({
-                "user_role": user_role,
+                "user_role": role_description,
                 "project_name": project.get("canonical_name", ""),
                 "project_aliases": ", ".join(project.get("aliases", [])),
                 "importance_tier": project.get("importance_tier", "UNKNOWN"),
@@ -253,7 +253,7 @@ class PostAggregationFilter:
     def _save_filter_result(
         self,
         project_name: str,
-        user_role: str,
+        role_description: str,
         confidence: float,
         is_relevant: bool,
         reasoning: List[str],
@@ -269,7 +269,7 @@ class PostAggregationFilter:
             if metadata:
                 # Update existing
                 metadata.post_agg_filter_enabled = True
-                metadata.post_agg_user_role = user_role
+                metadata.post_agg_user_role = role_description
                 metadata.post_agg_confidence = confidence
                 metadata.post_agg_reasoning = json.dumps(reasoning)
                 metadata.post_agg_is_relevant = is_relevant
@@ -282,7 +282,7 @@ class PostAggregationFilter:
                 metadata = ProjectClusterMetadata(
                     cluster_canonical_name=project_name,
                     post_agg_filter_enabled=True,
-                    post_agg_user_role=user_role,
+                    post_agg_user_role=role_description,
                     post_agg_confidence=confidence,
                     post_agg_reasoning=json.dumps(reasoning),
                     post_agg_is_relevant=is_relevant,

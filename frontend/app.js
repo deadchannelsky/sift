@@ -592,9 +592,6 @@ async function loadResults() {
         if (projectsLoaded || stakeholdersLoaded) {
             document.getElementById('aggregation-retry-section').style.display = 'block';
             document.getElementById('post-filter-section').style.display = 'block';
-
-            // Load roles for the post-filter dropdown
-            loadPostFilterRoles();
         }
 
     } catch (error) {
@@ -1146,45 +1143,12 @@ let postFilterJobId = null;
 let postFilterPollInterval = null;
 
 /**
- * Load available roles into the post-filter role selector
- */
-async function loadPostFilterRoles() {
-    try {
-        // Fetch config to get available roles
-        const response = await apiCall('GET', '/config/aggregation-defaults');
-        const config = response.data || {};
-
-        const postFilterConfig = config.post_aggregation_filter || {};
-        const roles = postFilterConfig.available_roles || [];
-
-        const roleSelect = document.getElementById('post-filter-role');
-        roleSelect.innerHTML = '';
-
-        roles.forEach(role => {
-            const option = document.createElement('option');
-            option.value = role;
-            option.textContent = role;
-            roleSelect.appendChild(option);
-        });
-
-        // Set default role
-        const defaultRole = postFilterConfig.default_user_role || roles[0];
-        roleSelect.value = defaultRole;
-
-        console.log('Post-filter roles loaded:', roles);
-    } catch (error) {
-        console.error('Error loading post-filter roles:', error);
-    }
-}
-
-/**
  * Toggle visibility of post-filter section and show results section
  */
 function togglePostFilterSection() {
     const section = document.getElementById('post-filter-section');
     if (section.style.display === 'none') {
         section.style.display = 'block';
-        loadPostFilterRoles();  // Load roles when opening
     } else {
         section.style.display = 'none';
     }
@@ -1205,12 +1169,12 @@ function updateFilterThresholdDisplay(value) {
  * Start the post-aggregation filter job
  */
 async function startPostAggregationFilter() {
-    const roleSelect = document.getElementById('post-filter-role');
-    const userRole = roleSelect.value;
+    const roleTextarea = document.getElementById('post-filter-role');
+    const roleDescription = roleTextarea.value.trim();
     const threshold = parseFloat(document.getElementById('post-filter-threshold').value);
 
-    if (!userRole) {
-        showError('post-filter-error', 'Please select a user role');
+    if (!roleDescription) {
+        showError('post-filter-error', 'Please describe your role and responsibilities');
         return;
     }
 
@@ -1226,7 +1190,7 @@ async function startPostAggregationFilter() {
 
     try {
         const result = await apiCall('POST', '/post-aggregate-filter', {
-            user_role: userRole,
+            role_description: roleDescription,
             confidence_threshold: threshold
         });
 
