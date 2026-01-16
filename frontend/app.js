@@ -444,6 +444,14 @@ function handleJobCompletion(jobType, status) {
         // Aggregation complete, show results
         loadResults();
         document.getElementById('results-btn').style.display = 'inline-block';
+
+        // If aggregation failed, show retry section on results page
+        if (status.status === 'failed' || status.error) {
+            console.error('Aggregation failed:', status.error);
+            goToResults();
+            showError('aggregation-error', 'Aggregation failed: ' + (status.error || 'Unknown error'));
+            document.getElementById('aggregation-retry-section').style.display = 'block';
+        }
     }
 }
 
@@ -555,16 +563,33 @@ async function loadResults() {
         const projects = await fetch(API_BASE + 'reports/aggregated_projects.json');
         const stakeholders = await fetch(API_BASE + 'reports/aggregated_stakeholders.json');
 
+        let projectsLoaded = false;
+        let stakeholdersLoaded = false;
+
         if (projects.ok) {
             aggregatedData.projects = (await projects.json()).projects;
             document.getElementById('stat-projects').textContent = aggregatedData.projects.length;
             displayProjects();
+            projectsLoaded = true;
         }
 
         if (stakeholders.ok) {
-            aggregatedData.stakeholders = (await stakeholders.json()).stakeholders;
+            const stakeholderData = await stakeholders.json();
+            aggregatedData.stakeholders = stakeholderData.stakeholders;
             document.getElementById('stat-stakeholders').textContent = aggregatedData.stakeholders.length;
             displayStakeholders();
+            stakeholdersLoaded = true;
+
+            // Show filtering stats if available
+            const stats = stakeholderData.stats;
+            if (stats && stats.filtered_out > 0) {
+                console.log(`Stakeholder filtering: ${stats.filtered_out} removed (${stats.total_before_filtering} total)`);
+            }
+        }
+
+        // Show retry section if aggregation is complete (even if partial)
+        if (projectsLoaded || stakeholdersLoaded) {
+            document.getElementById('aggregation-retry-section').style.display = 'block';
         }
 
     } catch (error) {
@@ -767,6 +792,34 @@ async function parseSelectedFile(filename) {
 
     } catch (error) {
         showError('upload-error', `Failed to parse: ${error.message}`);
+    }
+}
+
+async function retryAggregation() {
+    const retryBtn = event.target;
+    retryBtn.disabled = true;
+    retryBtn.textContent = 'Re-running...';
+
+    try {
+        console.log('Retrying aggregation...');
+        const result = await apiCall('POST', '/aggregate', {});
+
+        currentJobIds.aggregate = result.job_id;
+        console.log('Aggregation retry started:', result.job_id);
+
+        // Close retry section and start polling
+        document.getElementById('aggregation-retry-section').style.display = 'none';
+        document.getElementById('aggregation-error').style.display = 'none';
+
+        // Show pipeline with polling
+        goToPipeline();
+        startPolling('aggregate');
+
+    } catch (error) {
+        console.error('Error retrying aggregation:', error);
+        showError('aggregation-error', 'Failed to retry aggregation: ' + error.message);
+        retryBtn.disabled = false;
+        retryBtn.textContent = 'Re-run Aggregation with New Settings';
     }
 }
 

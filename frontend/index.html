@@ -331,6 +331,30 @@
                     </div>
                 </div>
 
+                <!-- Aggregation Error Message -->
+                <div id="aggregation-error" class="alert alert-danger" style="display: none;"></div>
+
+                <!-- Re-run Aggregation Controls -->
+                <div id="aggregation-retry-section" style="display: none; margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 5px; background-color: #f9f9f9;">
+                    <h4>Aggregation Configuration</h4>
+                    <p>Modify aggregation settings and re-run without re-enriching:</p>
+                    <div class="form-group" style="margin-top: 10px;">
+                        <label>Min Role Confidence: <span id="agg-conf-value">0.65</span></label>
+                        <input type="range" id="agg-min-conf" min="0.5" max="0.95" step="0.05" value="0.65"
+                               oninput="updateValue('agg-conf-value', this.value)">
+                        <small>Exclude stakeholders with lower confidence</small>
+                    </div>
+                    <div class="form-group" style="margin-top: 10px;">
+                        <label>Min Mentions: <span id="agg-mentions-value">2</span></label>
+                        <input type="range" id="agg-min-mentions" min="1" max="10" value="2"
+                               oninput="updateValue('agg-mentions-value', this.value)">
+                        <small>Exclude stakeholders mentioned fewer times</small>
+                    </div>
+                    <button class="btn btn-primary" onclick="retryAggregation()" style="margin-top: 10px;">
+                        Re-run Aggregation with New Settings
+                    </button>
+                </div>
+
                 <!-- Navigation Buttons -->
                 <div class="button-group">
                     <button class="btn btn-secondary" onclick="goToPipeline()">← Back to Pipeline</button>
