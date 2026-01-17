@@ -868,9 +868,17 @@ function resumePipeline(stage) {
         goToPipeline();
         startEnrichment();
     } else if (stage === 'aggregate') {
-        // Start aggregation directly
+        // Start aggregation directly - but first show RAG button since enrichment is complete
         console.log('Resuming at aggregation stage...');
         goToPipeline();
+
+        // Show both aggregate and RAG buttons (enrichment already done)
+        document.getElementById('start-aggregate-btn').style.display = 'inline-block';
+        document.getElementById('start-rag-embed-btn').style.display = 'inline-block';
+        document.getElementById('rag-status').className = 'status-badge pending';
+        document.getElementById('rag-status').textContent = 'Ready';
+        document.getElementById('rag-info').textContent = 'Click "Generate Embeddings" to enable semantic search';
+
         startAggregation();
     }
 }
