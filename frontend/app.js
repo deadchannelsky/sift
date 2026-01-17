@@ -1315,25 +1315,25 @@ async function displayPostFilterResults() {
     try {
         // Fetch results
         const response = await apiCall('GET', '/post-aggregate-filter/results/summary');
-        const results = response.results || {};
+        const results = response || {};
 
         // Hide progress, show results
         document.getElementById('post-filter-progress').style.display = 'none';
         document.getElementById('post-filter-results').style.display = 'block';
 
-        // Update statistics
+        // Update statistics (match backend response keys)
         document.getElementById('post-filter-total').textContent = results.total_projects || 0;
-        document.getElementById('post-filter-included').textContent = results.projects_included || 0;
-        document.getElementById('post-filter-excluded').textContent = results.projects_excluded || 0;
+        document.getElementById('post-filter-included').textContent = results.included_projects || 0;
+        document.getElementById('post-filter-excluded').textContent = results.excluded_projects || 0;
 
-        const avgConf = results.avg_confidence !== undefined ? results.avg_confidence : 0;
+        const avgConf = results.confidence_avg !== undefined ? results.confidence_avg : 0;
         document.getElementById('post-filter-avg-conf').textContent = (avgConf * 100).toFixed(1) + '%';
 
         // Display excluded projects
         const excludedList = document.getElementById('post-filter-excluded-list');
         excludedList.innerHTML = '';
 
-        const excludedProjects = results.excluded_projects || [];
+        const excludedProjects = results.excluded_projects_preview || [];
         if (excludedProjects.length === 0) {
             excludedList.innerHTML = '<p style="color: #666; font-style: italic;">No projects excluded - all projects passed the confidence threshold.</p>';
         } else {
@@ -1341,9 +1341,9 @@ async function displayPostFilterResults() {
                 const projectDiv = document.createElement('div');
                 projectDiv.style.cssText = 'background: white; padding: 12px; border: 1px solid #e5e7eb; border-radius: 3px; margin-bottom: 10px;';
 
-                const projectName = project.project_name || 'Unknown';
+                const projectName = project.name || 'Unknown';
                 const confidence = project.confidence || 0;
-                const reasoning = project.reasoning || [];
+                const reasoning = typeof project.reasoning === 'string' ? [project.reasoning] : (project.reasoning || []);
 
                 projectDiv.innerHTML = `
                     <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
