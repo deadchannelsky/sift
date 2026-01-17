@@ -1319,8 +1319,7 @@ async def generate_embeddings(background_tasks: BackgroundTasks):
         job = ProcessingJob(
             job_id=job_id,
             pst_filename="rag_embeddings",
-            status="queued",
-            progress_percent=0
+            status="queued"
         )
         session.add(job)
         session.commit()
@@ -1349,10 +1348,15 @@ async def get_embedding_status(job_id: str):
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
 
+        # Calculate progress percentage from processed/total messages
+        progress_percent = 0
+        if job.total_messages > 0:
+            progress_percent = int((job.processed_messages / job.total_messages) * 100)
+
         return {
             "job_id": job_id,
             "status": job.status,
-            "progress_percent": job.progress_percent,
+            "progress_percent": progress_percent,
             "message": f"Embedding generation {job.status}"
         }
 
@@ -1885,10 +1889,13 @@ def _generate_embeddings_task(job_id: str):
 
         if not messages:
             job.status = "completed"
-            job.progress_percent = 100
             session.commit()
             logger.warning("No enriched messages found for embedding")
             return
+
+        # Set total message count for progress tracking
+        job.total_messages = len(messages)
+        session.commit()
 
         # Index each message
         for idx, msg in enumerate(messages):
@@ -1932,11 +1939,11 @@ def _generate_embeddings_task(job_id: str):
                 session.commit()
 
                 # Update progress
-                progress = int((idx + 1) / len(messages) * 100)
-                job.progress_percent = progress
+                job.processed_messages = idx + 1
                 session.commit()
 
                 if (idx + 1) % 50 == 0:
+                    progress = int((idx + 1) / len(messages) * 100)
                     logger.info(f"Embedded {idx + 1}/{len(messages)} messages ({progress}%)")
 
             except Exception as e:
@@ -1946,7 +1953,7 @@ def _generate_embeddings_task(job_id: str):
 
         # Mark job as complete
         job.status = "completed"
-        job.progress_percent = 100
+        job.processed_messages = job.total_messages
         session.commit()
 
         logger.info(f"✅ Embedding generation complete: {len(messages)} messages indexed")
