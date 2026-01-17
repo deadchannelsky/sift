@@ -525,27 +525,65 @@ async function loadModels() {
             }
             select.appendChild(option);
         });
+
+        // Update model indicators with current model
+        if (result.current_model) {
+            const displayName = result.current_model.split('/').pop().split(':')[0];
+            document.getElementById('parse-model-name').textContent = displayName;
+            document.getElementById('enrich-model-name').textContent = displayName;
+            document.getElementById('post-filter-model-name').textContent = displayName;
+        }
+
     } catch (error) {
         console.error('Error loading models:', error);
     }
 }
 
 async function switchModel() {
-    const modelName = document.getElementById('model-select').value;
+    const modelSelect = document.getElementById('model-select');
+    const modelName = modelSelect.value;
+
     if (!modelName) {
         console.warn('No model selected');
         return;
     }
 
     try {
+        // Show visual feedback that model is switching
+        modelSelect.disabled = true;
         console.log('Switching to model:', modelName);
+
         // URL-encode model name to handle slashes and colons (e.g., hf.co/org/model:variant)
         const encodedModelName = encodeURIComponent(modelName);
         const response = await apiCall('POST', `/models/${encodedModelName}`, {});
-        console.log('Model switched successfully:', response);
+        console.log('✅ Model switched successfully:', response);
+
+        // Extract short model name for display (e.g., "granite-4.0-h-tiny-GGUF" from full path)
+        const modelDisplayName = modelName.split('/').pop().split(':')[0];
+
+        // Update all model indicator elements on the page
+        document.getElementById('parse-model-name').textContent = modelDisplayName;
+        document.getElementById('enrich-model-name').textContent = modelDisplayName;
+        document.getElementById('post-filter-model-name').textContent = modelDisplayName;
+
+        // Show success notification in header
+        const statusBadge = document.getElementById('backend-status');
+        if (statusBadge) {
+            const oldText = statusBadge.textContent;
+            statusBadge.textContent = `✓ Model: ${modelDisplayName}`;
+            statusBadge.className = 'status-badge success';
+            setTimeout(() => {
+                statusBadge.textContent = oldText;
+                statusBadge.className = 'status-badge connected';
+            }, 3000);
+        }
+
+        modelSelect.disabled = false;
+
     } catch (error) {
-        console.error('Error switching model:', error);
+        console.error('❌ Error switching model:', error);
         alert('Failed to switch model: ' + error.message);
+        modelSelect.disabled = false;
     }
 }
 

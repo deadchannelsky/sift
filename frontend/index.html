@@ -9,10 +9,19 @@
 <body>
     <!-- Header -->
     <header class="header">
-        <div class="container">
+        <div class="container" style="display: grid; grid-template-columns: 1fr auto auto; gap: 20px; align-items: center;">
             <div class="header-content">
                 <h1>📧 Sift</h1>
                 <p class="subtitle">Email Intelligence Extraction & Analysis</p>
+            </div>
+            <div class="header-model-selector" style="min-width: 300px; background: rgba(255, 255, 255, 0.1); padding: 12px 15px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.2);">
+                <label style="font-weight: 600; color: white; font-size: 0.9em; margin-bottom: 5px; display: block;">
+                    LLM Model <span style="font-weight: 400; font-size: 0.85em; color: rgba(255, 255, 255, 0.8);">(affects all AI operations)</span>
+                </label>
+                <select id="model-select" onchange="switchModel()"
+                        style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 0.95em; background: white;">
+                    <option value="">Loading models...</option>
+                </select>
             </div>
             <div class="header-status" id="header-status">
                 <span id="backend-status" class="status-badge loading">Connecting...</span>
@@ -186,6 +195,9 @@
                     <div class="job-card" id="parse-card">
                         <h4>Parsing</h4>
                         <div class="status-badge" id="parse-status">Pending</div>
+                        <p style="font-size: 0.85em; color: #666; margin-top: 8px;">
+                            Using model: <strong id="parse-model-name">-</strong>
+                        </p>
                         <div class="progress-bar">
                             <div id="parse-progress" class="progress-fill" style="width: 0%"></div>
                         </div>
@@ -212,12 +224,9 @@
                                 <input type="range" id="batch-size" min="1" max="20" value="5"
                                        oninput="updateValue('batch-value', this.value)">
                             </div>
-                            <div class="form-group">
-                                <label>Model</label>
-                                <select id="model-select" onchange="switchModel()">
-                                    <option value="">Loading models...</option>
-                                </select>
-                            </div>
+                            <p style="font-size: 0.85em; color: #666; margin-top: 10px;">
+                                Using model: <strong id="enrich-model-name">-</strong>
+                            </p>
                         </div>
                         <button id="start-enrich-btn" class="btn btn-primary" onclick="startEnrichment()"
                                 style="display: none;">Start Enrichment</button>
@@ -227,6 +236,9 @@
                     <div class="job-card" id="aggregate-card">
                         <h4>Aggregation</h4>
                         <div class="status-badge" id="aggregate-status">Pending</div>
+                        <p style="font-size: 0.85em; color: #999; margin-top: 8px;">
+                            No LLM required
+                        </p>
                         <div class="progress-bar">
                             <div id="aggregate-progress" class="progress-fill" style="width: 0%"></div>
                         </div>
@@ -472,6 +484,9 @@
                         <div style="flex-grow: 1;">
                             <h4 style="margin: 0 0 5px 0; color: #5b21b6;">Post-Aggregation Quality Filter</h4>
                             <p style="margin: 0; color: #7c3aed; font-size: 0.9em;">Use LLM to evaluate projects for role-based relevance and filter low-confidence results</p>
+                            <p style="margin: 5px 0 0 0; font-size: 0.85em; color: #666;">
+                                Using model: <strong id="post-filter-model-name">-</strong>
+                            </p>
                         </div>
                     </div>
 
