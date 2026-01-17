@@ -413,6 +413,11 @@ function updateJobCard(jobType, status) {
             document.getElementById('enrich-config').style.display = 'block';
         } else if (jobType === 'enrich') {
             document.getElementById('start-aggregate-btn').style.display = 'inline-block';
+            // Also show RAG embedding generation button
+            document.getElementById('start-rag-embed-btn').style.display = 'inline-block';
+            document.getElementById('rag-status').className = 'status-badge pending';
+            document.getElementById('rag-status').textContent = 'Ready';
+            document.getElementById('rag-info').textContent = 'Click "Generate Embeddings" to enable semantic search';
         }
     }
 
@@ -1369,5 +1374,254 @@ async function displayPostFilterResults() {
     } catch (error) {
         console.error('Error displaying post-filter results:', error);
         showError('post-filter-error', 'Failed to display results: ' + error.message);
+    }
+}
+
+// ============================================================================
+// RAG QUERY FUNCTIONS
+// ============================================================================
+
+let ragSessionId = null;
+let ragChatHistory = [];
+
+async function startEmbeddingGeneration() {
+    try {
+        document.getElementById('start-rag-embed-btn').disabled = true;
+        document.getElementById('rag-info').textContent = 'Starting embedding generation...';
+
+        const result = await apiCall('POST', '/rag/embeddings/generate');
+        const jobId = result.job_id;
+
+        currentJobIds.rag_embed = jobId;
+
+        // Update UI
+        document.getElementById('rag-status').className = 'status-badge processing';
+        document.getElementById('rag-progress-bar').style.display = 'block';
+
+        // Start polling
+        startEmbeddingPolling(jobId);
+
+    } catch (error) {
+        console.error('❌ Error starting embedding generation:', error);
+        showError('rag-error', 'Failed to start embedding generation: ' + error.message);
+        document.getElementById('start-rag-embed-btn').disabled = false;
+    }
+}
+
+async function startEmbeddingPolling(jobId) {
+    const pollInterval = setInterval(async () => {
+        try {
+            const status = await apiCall('GET', `/rag/embeddings/status/${jobId}`);
+
+            // Update progress
+            const progressPercent = status.progress_percent || 0;
+            document.getElementById('rag-progress').style.width = progressPercent + '%';
+            document.getElementById('rag-info').textContent = `Embedding generation: ${progressPercent}% complete`;
+
+            if (status.status === 'completed') {
+                clearInterval(pollInterval);
+                document.getElementById('rag-status').className = 'status-badge success';
+                document.getElementById('rag-status').textContent = 'Ready';
+                document.getElementById('rag-info').textContent = 'Embeddings ready! Click "Start RAG Session" to begin chatting.';
+                document.getElementById('open-rag-chat-btn').style.display = 'block';
+                document.getElementById('rag-progress-bar').style.display = 'none';
+                console.log('✅ Embeddings generated successfully');
+            } else if (status.status === 'failed') {
+                clearInterval(pollInterval);
+                document.getElementById('rag-status').className = 'status-badge error';
+                document.getElementById('rag-info').textContent = 'Embedding generation failed.';
+                showError('rag-error', 'Embedding generation failed');
+            }
+        } catch (error) {
+            console.error('Error polling embedding status:', error);
+        }
+    }, POLL_INTERVAL);
+}
+
+async function goToRAGChat() {
+    try {
+        // Create new session
+        const result = await apiCall('POST', '/rag/session');
+        ragSessionId = result.session_id;
+        ragChatHistory = [];
+
+        console.log('✅ Created RAG session:', ragSessionId);
+
+        // Clear messages and show page
+        const messagesDiv = document.getElementById('rag-messages');
+        messagesDiv.innerHTML = `
+            <div class="rag-message assistant">
+                <div class="message-avatar">🤖</div>
+                <div class="message-content">
+                    <p><strong>Session started!</strong></p>
+                    <p>Ask me anything about your emails. I'll search and provide answers with citations to specific messages.</p>
+                </div>
+            </div>
+        `;
+
+        // Navigate to RAG page
+        showPage('rag-page');
+        document.getElementById('rag-query-input').focus();
+
+    } catch (error) {
+        console.error('❌ Error starting RAG session:', error);
+        alert('Failed to start RAG session: ' + error.message);
+    }
+}
+
+async function sendRAGQuery() {
+    const input = document.getElementById('rag-query-input');
+    const query = input.value.trim();
+
+    if (!query) {
+        return;
+    }
+
+    // Add user message to UI
+    addRAGMessage('user', query);
+    input.value = '';
+
+    // Show loading
+    document.getElementById('rag-loading').style.display = 'block';
+    document.getElementById('rag-send-btn').disabled = true;
+
+    try {
+        const result = await apiCall('POST', `/rag/${ragSessionId}/query`, {
+            query: query,
+            chat_history: ragChatHistory
+        });
+
+        // Add assistant message with citations
+        addRAGMessage('assistant', result.answer, result.citations);
+
+        // Update chat history
+        ragChatHistory.push({ role: 'user', content: query });
+        ragChatHistory.push({ role: 'assistant', content: result.answer });
+
+        console.log(`✅ RAG query processed (${result.retrieved_count} messages retrieved)`);
+
+    } catch (error) {
+        console.error('❌ Error processing RAG query:', error);
+        addRAGMessage('assistant', '❌ Error: ' + error.message);
+    } finally {
+        document.getElementById('rag-loading').style.display = 'none';
+        document.getElementById('rag-send-btn').disabled = false;
+        document.getElementById('rag-query-input').focus();
+    }
+}
+
+function addRAGMessage(role, content, citations = null) {
+    const messagesDiv = document.getElementById('rag-messages');
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `rag-message ${role}`;
+
+    const avatar = role === 'user' ? '👤' : '🤖';
+
+    let citationsHTML = '';
+    if (citations && citations.length > 0) {
+        citationsHTML = `
+            <div class="citations" style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #e5e7eb;">
+                <p style="font-weight: 600; margin-bottom: 10px;">📎 Sources (${citations.length} email${citations.length !== 1 ? 's' : ''}):</p>
+                ${citations.map((c, idx) => `
+                    <div class="citation-card" style="background: #f3f4f6; padding: 10px 12px; border-radius: 4px; margin-bottom: 8px; cursor: pointer; transition: all 0.2s ease;"
+                         onmouseover="this.style.transform='translateX(5px)'; this.style.boxShadow='0 2px 8px rgba(0,0,0,0.1)'"
+                         onmouseout="this.style.transform='translateX(0)'; this.style.boxShadow='none'"
+                         onclick="expandCitation(${c.message_id})">
+                        <strong>[${idx + 1}] ${c.subject || '(no subject)'}</strong>
+                        <p style="font-size: 0.9em; color: #666; margin: 5px 0 0 0;">
+                            From: ${c.sender} • ${new Date(c.date).toLocaleDateString()}
+                        </p>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }
+
+    messageDiv.innerHTML = `
+        <div class="message-avatar">${avatar}</div>
+        <div class="message-content">
+            <p style="white-space: pre-wrap; word-wrap: break-word;">${content}</p>
+            ${citationsHTML}
+        </div>
+    `;
+
+    messagesDiv.appendChild(messageDiv);
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;  // Scroll to bottom
+}
+
+async function expandCitation(messageId) {
+    try {
+        const message = await apiCall('GET', `/rag/message/${messageId}`);
+
+        // Format extractions
+        let extractionsText = 'No extractions found';
+        if (message.extractions && Object.keys(message.extractions).length > 0) {
+            extractionsText = JSON.stringify(message.extractions, null, 2);
+        }
+
+        // Create modal
+        const modal = document.createElement('div');
+        modal.className = 'rag-citation-modal';
+        modal.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            padding: 20px;
+        `;
+
+        const content = document.createElement('div');
+        content.style.cssText = `
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            max-width: 800px;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        `;
+
+        const dateStr = new Date(message.date).toLocaleString();
+        content.innerHTML = `
+            <h3 style="margin: 0 0 15px 0; color: #1f2937;">${message.subject || '(no subject)'}</h3>
+            <div style="background: #f3f4f6; padding: 12px; border-radius: 4px; margin-bottom: 15px; font-size: 0.9em;">
+                <p style="margin: 0 0 5px 0;"><strong>From:</strong> ${message.sender.name} &lt;${message.sender.email}&gt;</p>
+                <p style="margin: 0 0 5px 0;"><strong>Date:</strong> ${dateStr}</p>
+                <p style="margin: 0;"><strong>To:</strong> ${message.recipients}</p>
+            </div>
+            <div style="border-top: 1px solid #e5e7eb; padding-top: 15px; margin-bottom: 15px;">
+                <p style="white-space: pre-wrap; word-wrap: break-word; color: #374151; line-height: 1.6;">${message.body}</p>
+            </div>
+            <div style="background: #f9fafb; padding: 15px; border-radius: 4px; border: 1px solid #e5e7eb;">
+                <h4 style="margin: 0 0 10px 0; color: #5b21b6;">Extracted Intelligence:</h4>
+                <pre style="background: white; padding: 10px; border-radius: 3px; overflow-x: auto; font-size: 0.85em; color: #666;">${extractionsText}</pre>
+            </div>
+            <div style="margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end;">
+                <button class="btn btn-secondary" onclick="this.closest('.rag-citation-modal').remove()">Close</button>
+            </div>
+        `;
+
+        modal.appendChild(content);
+        modal.onclick = (e) => {
+            if (e.target === modal) modal.remove();
+        };
+
+        document.body.appendChild(modal);
+
+    } catch (error) {
+        console.error('❌ Error loading message:', error);
+        alert('Failed to load message: ' + error.message);
+    }
+}
+
+function clearRAGSession() {
+    if (confirm('Clear chat history and start a fresh session?')) {
+        goToRAGChat();
     }
 }

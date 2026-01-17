@@ -249,6 +249,24 @@
                         <button id="start-aggregate-btn" class="btn btn-primary" onclick="startAggregation()"
                                 style="display: none;">Start Aggregation</button>
                     </div>
+
+                    <!-- RAG Query Card (NEW) -->
+                    <div class="job-card" id="rag-card">
+                        <h4>RAG Query</h4>
+                        <div class="status-badge" id="rag-status">Pending</div>
+                        <p style="font-size: 0.85em; color: #666; margin-top: 8px;">
+                            Chat with your enriched email data
+                        </p>
+                        <div class="progress-bar" id="rag-progress-bar" style="display: none;">
+                            <div id="rag-progress" class="progress-fill" style="width: 0%"></div>
+                        </div>
+                        <p id="rag-info" class="job-info">Generate embeddings to enable semantic search</p>
+                        <div id="rag-error" class="alert alert-danger" style="display: none;"></div>
+                        <button id="start-rag-embed-btn" class="btn btn-primary" onclick="startEmbeddingGeneration()"
+                                style="display: none; margin-top: 10px;">Generate Embeddings</button>
+                        <button id="open-rag-chat-btn" class="btn btn-success" onclick="goToRAGChat()"
+                                style="display: none; margin-top: 10px;">Start RAG Session →</button>
+                    </div>
                 </div>
 
                 <!-- Navigation Buttons -->
@@ -561,6 +579,59 @@
                 <div class="button-group">
                     <button class="btn btn-secondary" onclick="goToPipeline()">← Back to Pipeline</button>
                     <button class="btn btn-primary" onclick="goToUpload()">Start New Analysis</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ========== PAGE 4: RAG CHAT ========== -->
+        <section id="rag-page" class="page">
+            <div class="page-content">
+                <h2>Chat with Your Email Data</h2>
+                <p class="help-text">Ask questions about projects, stakeholders, and activities. I'll search your enriched emails and provide answers with citations.</p>
+
+                <!-- Chat Container -->
+                <div id="rag-chat-container" style="background: white; border: 1px solid #ddd; border-radius: 8px; min-height: 500px; display: flex; flex-direction: column; margin-bottom: 20px;">
+
+                    <!-- Chat Messages Area -->
+                    <div id="rag-messages" style="flex: 1; padding: 20px; overflow-y: auto; max-height: 600px; background: #f9fafb;">
+                        <!-- Welcome message -->
+                        <div class="rag-message assistant">
+                            <div class="message-avatar">🤖</div>
+                            <div class="message-content">
+                                <p><strong>Welcome to Email Intelligence Chat!</strong></p>
+                                <p>I have access to your enriched email data (projects, stakeholders, importance levels). Ask me anything!</p>
+                                <p><strong>Example queries:</strong></p>
+                                <ul style="margin: 10px 0; padding-left: 20px;">
+                                    <li>"What projects involved cloud migration?"</li>
+                                    <li>"Who were the key stakeholders in Q4?"</li>
+                                    <li>"Summarize critical initiatives from December"</li>
+                                    <li>"What did we decide about infrastructure?"</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Input Area -->
+                    <div style="border-top: 2px solid #e5e7eb; padding: 15px; background: #f9fafb;">
+                        <div style="display: flex; gap: 10px; align-items: flex-end;">
+                            <textarea id="rag-query-input"
+                                     placeholder="Ask a question about your emails..."
+                                     style="flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 1em; font-family: inherit; resize: vertical; min-height: 44px; max-height: 100px;"
+                                     onkeydown="if(event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendRAGQuery(); }"></textarea>
+                            <button class="btn btn-primary" onclick="sendRAGQuery()" id="rag-send-btn" style="padding: 10px 24px;">
+                                Send
+                            </button>
+                        </div>
+                        <div id="rag-loading" style="display: none; margin-top: 10px; color: #666; font-size: 0.9em;">
+                            <span>🔍 Searching emails and generating response...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Navigation -->
+                <div class="button-group">
+                    <button class="btn btn-secondary" onclick="goToPipeline()">← Back to Pipeline</button>
+                    <button class="btn btn-outline-danger" onclick="clearRAGSession()">Clear Chat & Start Fresh</button>
                 </div>
             </div>
         </section>

@@ -897,3 +897,129 @@ body {
 .file-item-action {
     margin-left: 15px;
 }
+
+/* ============================================================================
+   RAG (RETRIEVAL-AUGMENTED GENERATION) CHAT STYLES
+   ============================================================================ */
+
+.rag-message {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+    align-items: flex-start;
+}
+
+.rag-message.user {
+    flex-direction: row-reverse;
+}
+
+.rag-message .message-avatar {
+    font-size: 28px;
+    flex-shrink: 0;
+    width: 36px;
+    text-align: center;
+}
+
+.rag-message .message-content {
+    background: #f3f4f6;
+    padding: 12px 16px;
+    border-radius: 8px;
+    max-width: 70%;
+    color: #1f2937;
+    line-height: 1.5;
+}
+
+.rag-message.user .message-content {
+    background: #2563eb;
+    color: white;
+}
+
+.rag-message .message-content p {
+    margin: 0 0 8px 0;
+}
+
+.rag-message .message-content p:last-child {
+    margin-bottom: 0;
+}
+
+.rag-message .message-content ul {
+    margin: 8px 0;
+    padding-left: 20px;
+}
+
+.rag-message .message-content li {
+    margin: 4px 0;
+}
+
+.citation-card {
+    background: #f3f4f6;
+    padding: 10px 12px;
+    border-radius: 4px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.citation-card:hover {
+    transform: translateX(5px);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.citation-card strong {
+    color: #1f2937;
+    display: block;
+    margin-bottom: 4px;
+}
+
+.citation-card p {
+    font-size: 0.9em;
+    color: #666;
+    margin: 0;
+}
+
+.rag-chat-container {
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    min-height: 500px;
+}
+
+#rag-messages {
+    flex: 1;
+    padding: 20px;
+    overflow-y: auto;
+    max-height: 600px;
+    background: #f9fafb;
+}
+
+#rag-query-input {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 1em;
+    font-family: inherit;
+    resize: vertical;
+    min-height: 44px;
+    max-height: 100px;
+}
+
+#rag-query-input::placeholder {
+    color: #999;
+}
+
+.rag-citation-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 20px;
+}
