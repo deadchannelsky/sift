@@ -1293,6 +1293,282 @@ async def get_post_aggregation_filter_results():
 
 
 # ============================================================================
+# RAG (RETRIEVAL-AUGMENTED GENERATION) ENDPOINTS
+# ============================================================================
+
+@app.post("/rag/embeddings/generate")
+async def generate_embeddings(background_tasks: BackgroundTasks):
+    """
+    Trigger background job to generate embeddings for all enriched messages
+
+    Creates vector embeddings using ChromaDB + nomic-embed-text for semantic search.
+    This is a prerequisite for RAG queries.
+
+    Returns:
+        Job ID and status for polling
+    """
+    try:
+        from app.models import RAGSession
+
+        job_id = str(uuid.uuid4())[:8]
+        db_path = get_db_path()
+        engine = init_db(db_path)
+        session = get_session(engine)
+
+        # Create job record
+        job = ProcessingJob(
+            job_id=job_id,
+            pst_filename="rag_embeddings",
+            status="queued",
+            progress_percent=0
+        )
+        session.add(job)
+        session.commit()
+
+        logger.info(f"Starting embedding generation job: {job_id}")
+
+        # Add background task
+        background_tasks.add_task(_generate_embeddings_task, job_id)
+
+        return {"job_id": job_id, "status": "queued"}
+
+    except Exception as e:
+        logger.error(f"Error starting embedding generation: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/rag/embeddings/status/{job_id}")
+async def get_embedding_status(job_id: str):
+    """Get status of embedding generation job"""
+    try:
+        db_path = get_db_path()
+        engine = init_db(db_path)
+        session = get_session(engine)
+
+        job = session.query(ProcessingJob).filter_by(job_id=job_id).first()
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        return {
+            "job_id": job_id,
+            "status": job.status,
+            "progress_percent": job.progress_percent,
+            "message": f"Embedding generation {job.status}"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting embedding status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/rag/session")
+async def create_rag_session():
+    """
+    Create a new RAG chat session
+
+    Returns:
+        Session ID for subsequent queries
+    """
+    try:
+        from app.models import RAGSession
+
+        session_id = str(uuid.uuid4())[:8]
+        db_path = get_db_path()
+        engine = init_db(db_path)
+        session = get_session(engine)
+
+        rag_session = RAGSession(id=session_id)
+        session.add(rag_session)
+        session.commit()
+
+        logger.info(f"Created RAG session: {session_id}")
+
+        return {"session_id": session_id}
+
+    except Exception as e:
+        logger.error(f"Error creating RAG session: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/rag/{session_id}/query")
+async def query_rag(session_id: str, request: dict):
+    """
+    Submit a question to the RAG engine
+
+    Args:
+        session_id: RAG session ID
+        request: {"query": "...", "chat_history": [...]}
+
+    Returns:
+        {"answer": "...", "citations": [...], "retrieved_count": N}
+    """
+    try:
+        from app.models import RAGQueryHistory, RAGSession
+        from app.rag_engine import RAGEngine
+
+        query = request.get("query", "").strip()
+        chat_history = request.get("chat_history", [])
+
+        if not query:
+            raise HTTPException(status_code=400, detail="Query cannot be empty")
+
+        db_path = get_db_path()
+        engine = init_db(db_path)
+        session = get_session(engine)
+
+        # Verify session exists
+        rag_session = session.query(RAGSession).filter_by(id=session_id).first()
+        if not rag_session:
+            raise HTTPException(status_code=404, detail="RAG session not found")
+
+        # Initialize RAG components
+        try:
+            from app.vector_store import VectorStore
+            vector_store = VectorStore(ollama_client.url)
+        except ImportError as e:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Vector store not available: {e}. Run: pip install chromadb"
+            )
+
+        rag_engine = RAGEngine(session, ollama_client, vector_store, prompt_manager)
+
+        # Process query
+        logger.info(f"Processing RAG query in session {session_id}: {query[:80]}...")
+        result = rag_engine.query(query, chat_history)
+
+        # Store in history
+        history = RAGQueryHistory(
+            session_id=session_id,
+            query=query,
+            answer=result["answer"],
+            citations_json=json_lib.dumps(result["citations"]),
+            retrieved_count=result["retrieved_count"]
+        )
+        session.add(history)
+
+        # Update session metadata
+        rag_session.last_query_at = datetime.utcnow()
+        rag_session.query_count += 1
+
+        session.commit()
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing RAG query: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/rag/{session_id}/history")
+async def get_rag_history(session_id: str):
+    """Get conversation history for a RAG session"""
+    try:
+        from app.models import RAGQueryHistory, RAGSession
+
+        db_path = get_db_path()
+        engine = init_db(db_path)
+        session = get_session(engine)
+
+        # Verify session exists
+        rag_session = session.query(RAGSession).filter_by(id=session_id).first()
+        if not rag_session:
+            raise HTTPException(status_code=404, detail="RAG session not found")
+
+        # Get history in chronological order
+        history = session.query(RAGQueryHistory).filter_by(
+            session_id=session_id
+        ).order_by(RAGQueryHistory.created_at).all()
+
+        messages = []
+        for h in history:
+            # User message
+            messages.append({
+                "role": "user",
+                "content": h.query,
+                "timestamp": h.created_at.isoformat()
+            })
+            # Assistant message
+            citations = []
+            if h.citations_json:
+                try:
+                    citations = json_lib.loads(h.citations_json)
+                except:
+                    pass
+
+            messages.append({
+                "role": "assistant",
+                "content": h.answer,
+                "citations": citations,
+                "timestamp": h.created_at.isoformat()
+            })
+
+        return {"session_id": session_id, "messages": messages}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting RAG history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/rag/message/{message_id}")
+async def get_message_details(message_id: int):
+    """
+    Get full message details for citation expansion
+
+    Args:
+        message_id: Database message ID
+
+    Returns:
+        Full message with extracted data
+    """
+    try:
+        from app.models import Message, Extraction
+
+        db_path = get_db_path()
+        engine = init_db(db_path)
+        session = get_session(engine)
+
+        message = session.query(Message).filter_by(id=message_id).first()
+        if not message:
+            raise HTTPException(status_code=404, detail="Message not found")
+
+        # Get extractions
+        extractions = session.query(Extraction).filter_by(message_id=message_id).all()
+
+        extraction_data = {}
+        for ext in extractions:
+            try:
+                extraction_data[ext.task_name] = json_lib.loads(ext.extraction_json)
+            except:
+                extraction_data[ext.task_name] = {}
+
+        return {
+            "message_id": message.id,
+            "subject": message.subject or "(no subject)",
+            "sender": {
+                "name": message.sender_name or "Unknown",
+                "email": message.sender_email or "unknown@example.com"
+            },
+            "recipients": message.recipients or "unknown",
+            "date": message.delivery_date.isoformat() if message.delivery_date else "",
+            "body": message.body_full or message.body_snippet or "(empty)",
+            "extractions": extraction_data
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting message details: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
 # BACKGROUND TASKS
 # ============================================================================
 
@@ -1566,6 +1842,129 @@ def _aggregate_data_task(job_id: str, aggregation_settings: dict = None):
 # ============================================================================
 # STATIC FILE SERVING (Frontend) - MUST BE LAST (after all API routes)
 # ============================================================================
+
+def _generate_embeddings_task(job_id: str):
+    """
+    Background task to generate embeddings for RAG
+
+    Indexes all enriched messages into ChromaDB using nomic-embed-text embeddings
+    for semantic search during RAG queries.
+
+    Args:
+        job_id: Unique job identifier
+    """
+    try:
+        from app.models import Message, Extraction, MessageEmbedding
+        from app.vector_store import VectorStore
+
+        logger.info(f"Starting embedding generation job: {job_id}")
+
+        db_path = get_db_path()
+        engine = init_db(db_path)
+        session = get_session(engine)
+
+        # Update job status
+        job = session.query(ProcessingJob).filter_by(job_id=job_id).first()
+        if not job:
+            logger.error(f"Job {job_id} not found")
+            return
+
+        job.status = "processing"
+        session.commit()
+
+        # Initialize vector store
+        vector_store = VectorStore(ollama_client.url)
+        logger.info(f"Vector store initialized at {vector_store.collection.count()} embeddings")
+
+        # Get all enriched messages
+        messages = session.query(Message).filter_by(
+            enrichment_status="completed"
+        ).all()
+
+        logger.info(f"Found {len(messages)} enriched messages to embed")
+
+        if not messages:
+            job.status = "completed"
+            job.progress_percent = 100
+            session.commit()
+            logger.warning("No enriched messages found for embedding")
+            return
+
+        # Index each message
+        for idx, msg in enumerate(messages):
+            try:
+                # Get extractions
+                extractions = session.query(Extraction).filter_by(
+                    message_id=msg.id
+                ).all()
+
+                extractions_by_task = {
+                    ext.task_name: ext.extraction_json for ext in extractions
+                }
+
+                # Build metadata
+                metadata = {
+                    "message_id": msg.id,
+                    "subject": msg.subject or "",
+                    "sender": msg.sender_email or "",
+                    "date": msg.delivery_date.isoformat() if msg.delivery_date else "",
+                    "importance_tier": extractions_by_task.get("task_c_importance", ""),
+                }
+
+                # Index message
+                vector_store.index_message(
+                    msg.id,
+                    msg.subject or "",
+                    msg.body_full or msg.body_snippet or "",
+                    extractions_by_task,
+                    metadata
+                )
+
+                # Record embedding metadata
+                embedding_record = session.query(MessageEmbedding).filter_by(
+                    message_id=msg.id
+                ).first()
+
+                if not embedding_record:
+                    embedding_record = MessageEmbedding(message_id=msg.id)
+                    session.add(embedding_record)
+
+                session.commit()
+
+                # Update progress
+                progress = int((idx + 1) / len(messages) * 100)
+                job.progress_percent = progress
+                session.commit()
+
+                if (idx + 1) % 50 == 0:
+                    logger.info(f"Embedded {idx + 1}/{len(messages)} messages ({progress}%)")
+
+            except Exception as e:
+                logger.error(f"Error embedding message {msg.id}: {e}")
+                # Continue with next message
+                continue
+
+        # Mark job as complete
+        job.status = "completed"
+        job.progress_percent = 100
+        session.commit()
+
+        logger.info(f"✅ Embedding generation complete: {len(messages)} messages indexed")
+
+    except Exception as e:
+        logger.error(f"Critical error in embedding generation task: {e}")
+        try:
+            db_path = get_db_path()
+            engine = init_db(db_path)
+            session = get_session(engine)
+            job = session.query(ProcessingJob).filter_by(job_id=job_id).first()
+            if job:
+                job.status = "failed"
+                job.error_message = str(e)
+                session.commit()
+        except Exception as update_error:
+            logger.error(f"Failed to update job status: {update_error}")
+
 
 # Mount frontend directory for serving static files
 # NOTE: This must be mounted AFTER all API endpoints, otherwise it will

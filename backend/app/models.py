@@ -217,6 +217,56 @@ class ProjectClusterMetadata(Base):
         return f"<ProjectClusterMetadata(name={self.cluster_canonical_name}, confidence={self.post_agg_confidence})>"
 
 
+# ============================================================================
+# RAG (RETRIEVAL-AUGMENTED GENERATION) MODELS
+# ============================================================================
+
+class RAGSession(Base):
+    """RAG chat session metadata"""
+    __tablename__ = "rag_sessions"
+
+    id = Column(String(100), primary_key=True)  # UUID
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_query_at = Column(DateTime, nullable=True)
+    query_count = Column(Integer, default=0)
+
+    def __repr__(self):
+        return f"<RAGSession(id={self.id}, queries={self.query_count})>"
+
+
+class RAGQueryHistory(Base):
+    """Query/response history for each RAG session"""
+    __tablename__ = "rag_query_history"
+
+    id = Column(Integer, primary_key=True)
+    session_id = Column(String(100), ForeignKey("rag_sessions.id"), index=True)
+    query = Column(Text, nullable=False)
+    answer = Column(Text, nullable=False)
+    citations_json = Column(Text, nullable=True)  # JSON array: [{"message_id": N, "subject": "...", "date": "...", "sender": "...", "snippet": "..."}]
+    retrieved_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    session = relationship("RAGSession", backref="queries")
+
+    def __repr__(self):
+        return f"<RAGQueryHistory(session={self.session_id}, retrieved={self.retrieved_count})>"
+
+
+class MessageEmbedding(Base):
+    """Track which messages are embedded in ChromaDB for RAG"""
+    __tablename__ = "message_embeddings"
+
+    message_id = Column(Integer, ForeignKey("messages.id"), primary_key=True, index=True)
+    embedding_generated_at = Column(DateTime, default=datetime.utcnow)
+    embedding_model = Column(String(100), default="nomic-embed-text")
+    indexed_in_chroma = Column(Boolean, default=True)
+
+    message = relationship("Message", backref="embedding_metadata")
+
+    def __repr__(self):
+        return f"<MessageEmbedding(msg={self.message_id}, model={self.embedding_model})>"
+
+
 def init_db(db_path: str = "data/messages.db"):
     """Initialize database and create all tables
 
