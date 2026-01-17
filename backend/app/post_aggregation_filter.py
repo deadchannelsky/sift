@@ -194,9 +194,15 @@ class PostAggregationFilter:
             if not isinstance(stakeholders, list):
                 stakeholders = []
 
+            # Truncate role_description if too long (some LLMs have token limits)
+            # Granite-4 tiny has ~4K context, keep role under 500 chars to leave room for project context
+            role_desc_truncated = role_description[:500]
+            if len(role_description) > 500:
+                logger.debug(f"Role description truncated from {len(role_description)} to 500 chars")
+
             # Substitute variables in prompt
             filled_prompt = prompt.substitute_variables({
-                "user_role": role_description,
+                "user_role": role_desc_truncated,
                 "project_name": str(project.get("canonical_name", "")),
                 "project_aliases": ", ".join([str(a) for a in aliases]),
                 "importance_tier": str(project.get("importance_tier", "UNKNOWN")),
@@ -212,10 +218,11 @@ class PostAggregationFilter:
             })
 
             # Call LLM
+            logger.debug(f"Sending prompt to LLM for project: {project.get('canonical_name')} (prompt length: {len(filled_prompt)} chars)")
             response = self.ollama.generate(filled_prompt)
 
             if not response or not response.strip():
-                logger.warning("Empty response from LLM, using fallback scoring")
+                logger.warning(f"Empty response from LLM for project '{project.get('canonical_name')}' (prompt was {len(filled_prompt)} chars), using fallback scoring")
                 return self._fallback_score(project)
 
             # Parse JSON response
@@ -231,7 +238,8 @@ class PostAggregationFilter:
                 return confidence, is_relevant, reasoning
 
             except json.JSONDecodeError as e:
-                logger.warning(f"JSON parse error in LLM response: {e}, using fallback")
+                logger.warning(f"JSON parse error for project '{project.get('canonical_name')}': {e} (response was {len(response)} chars), using fallback")
+                logger.debug(f"LLM response that failed to parse: {response[:200]}")  # Log first 200 chars
                 return self._fallback_score(project)
 
         except Exception as e:
