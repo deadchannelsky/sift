@@ -17,7 +17,9 @@
       "Bash(sqlite3:*)",
       "Bash(ls -lah \"C:\\\\Users\\\\JasonTyler\\\\Documents\\\\PersonalCode\\\\sift\\\\backend\\\\data\"\" 2>&1 || echo \"Directory not found \")",
       "Bash(cat:*)",
-      "Bash(python -m py_compile:*)"
+      "Bash(python -m py_compile:*)",
+      "Bash(python:*)",
+      "Bash(python3:*)"
     ]
   }
 }
