@@ -1319,10 +1319,10 @@ async def generate_embeddings(background_tasks: BackgroundTasks):
 
         # Validate embedding model is available before starting job
         try:
-            test_store = VectorStore(ollama_url=OLLAMA_URL)
+            test_store = VectorStore(ollama_url=ollama_client.url)
 
             # Test Ollama connection and model availability
-            response = req.get(f"{OLLAMA_URL}/api/tags", timeout=5)
+            response = req.get(f"{ollama_client.url}/api/tags", timeout=5)
             response.raise_for_status()
             models = response.json().get("models", [])
 
