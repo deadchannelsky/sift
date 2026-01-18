@@ -1,10 +1,11 @@
 # Ubuntu Linux deployment - Both PST parsing (libratom) and RAG (ChromaDB)
-# Note: libratom requires Pydantic 1.x, ChromaDB 0.4.15 is last version supporting Pydantic 1.x
+# Note: libratom 0.7.1 requires Pydantic 1.x and typing-extensions==4.4.0
+# ChromaDB 0.3.x series supports these versions (0.4.x requires typing-extensions>=4.5.0)
 
 # Core dependencies - PST parsing + RAG vector store
 libratom==0.7.1
-chromadb==0.4.15
-pydantic>=1.9,<2.0
+chromadb==0.3.21
+pydantic==1.10.2
 typing-extensions==4.4.0
 attrs==22.1.0
 
