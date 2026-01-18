@@ -11,6 +11,7 @@ from typing import Optional, List, Dict, Tuple
 from datetime import datetime
 import uuid
 import os
+import time
 from pathlib import Path
 
 from app.models import init_db, get_session, ProcessingJob, Message, Conversation, Extraction, AggregationSettings, ProjectClusterMetadata
@@ -1955,6 +1956,9 @@ def _generate_embeddings_task(job_id: str):
                     extractions_by_task,
                     metadata
                 )
+
+                # Throttle requests to prevent Ollama overload (0.5 second delay between embeddings)
+                time.sleep(0.5)
 
                 # Record embedding metadata
                 embedding_record = session.query(MessageEmbedding).filter_by(
