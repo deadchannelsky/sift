@@ -1,17 +1,21 @@
-# RAG-enabled dependencies
-# FastAPI/Uvicorn for modern Starlette support (ChromaDB needs Starlette 0.20+)
-fastapi>=0.95.2
+# Ubuntu Linux deployment - Both PST parsing (libratom) and RAG (ChromaDB)
+# Note: libratom requires Pydantic 1.x, ChromaDB 0.4.15 is last version supporting Pydantic 1.x
+
+# Core dependencies - PST parsing + RAG vector store
+libratom==0.7.1
+chromadb==0.4.15
+pydantic>=1.9,<2.0
+typing-extensions==4.4.0
+attrs==22.1.0
+
+# Web framework
+fastapi>=0.95.2,<0.100
 uvicorn>=0.20.0
-# Core data processing
+
+# Data processing
 sqlalchemy==1.4.44
 pandas>=2.0
-# Email parsing (note: libratom needs MSVC build tools, optional if PST already parsed)
-# libratom==0.7.1
 requests>=2.28.1
 python-multipart>=0.0.6
-# Vector DB and embedding support
-chromadb>=0.4.22
-# Updated Pydantic for Ollama integration (v2 models)
-pydantic>=2.0
 python-dotenv>=1.0.0
 aiofiles>=23.2.1
