@@ -29,14 +29,15 @@ class VectorStore:
 
         # Initialize ChromaDB with persistent storage (0.3.21 API)
         config = cc.Settings(
-            chroma_db_impl="duckdb",
+            chroma_db_impl="duckdb+parquet",
             persist_directory=persist_dir,
             anonymized_telemetry=False
         )
         self.client = chromadb.Client(config)
         self.collection = self.client.get_or_create_collection(
             name="messages",
-            metadata={"description": "Sift enriched email messages for RAG"}
+            metadata={"description": "Sift enriched email messages for RAG"},
+            embedding_function=None
         )
 
         logger.info(f"VectorStore initialized with ChromaDB at {persist_dir}")
