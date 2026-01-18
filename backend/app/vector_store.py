@@ -24,7 +24,7 @@ class VectorStore:
             raise ImportError("chromadb not installed. Run: pip install chromadb>=0.4.22")
 
         self.ollama_url = ollama_url
-        self.embedding_model = "nomic-embed-text"
+        self.embedding_model = "granite-embedding-125m-english"
 
         # Initialize ChromaDB with persistent storage
         self.client = chromadb.PersistentClient(path=persist_dir)

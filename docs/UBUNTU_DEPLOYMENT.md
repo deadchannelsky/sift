@@ -159,8 +159,23 @@ Ensure Ollama is running with required models:
 ollama serve
 
 # In another terminal, pull required models:
-ollama pull nomic-embed-text      # For RAG embeddings (768-dim)
-ollama pull granite:7b            # Or your preferred LLM for chat responses
+ollama pull granite-embedding-125m-english  # For RAG embeddings
+ollama pull granite:7b                      # Or your preferred LLM for chat responses
+```
+
+### Verify Embedding Model
+
+After pulling the model, verify it's available:
+
+```bash
+ollama list
+# Should show: granite-embedding-125m-english
+
+# Test embedding generation:
+curl http://localhost:11434/api/embeddings \
+  -d '{"model": "granite-embedding-125m-english", "prompt": "test"}' \
+  | jq '.embedding | length'
+# Should return embedding dimension (e.g., 384 or 768)
 ```
 
 ### Configuration
@@ -186,8 +201,9 @@ Automatic initialization on first run:
 Persistent storage location: `backend/data/chroma/`
 
 Automatically created on first embedding generation:
-- Stores 768-dimensional message embeddings
+- Stores message embeddings (dimension depends on embedding model)
 - Uses DuckDB backend for persistence
+- For granite-embedding-125m-english: auto-detects embedding dimensions
 - Collection: "messages"
 - Can be cleared and regenerated anytime
 

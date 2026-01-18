@@ -879,7 +879,7 @@ function resumePipeline(stage) {
         document.getElementById('rag-status').textContent = 'Ready';
         document.getElementById('rag-info').textContent = 'Click "Generate Embeddings" to enable semantic search';
 
-        startAggregation();
+        // User must manually choose between "Start Aggregation" or "Generate Embeddings"
     }
 }
 

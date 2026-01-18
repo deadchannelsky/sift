@@ -1309,11 +1309,40 @@ async def generate_embeddings(background_tasks: BackgroundTasks):
     """
     try:
         from app.models import RAGSession
+        from app.vector_store import VectorStore
+        import requests as req
 
         job_id = str(uuid.uuid4())[:8]
         db_path = get_db_path()
         engine = init_db(db_path)
         session = get_session(engine)
+
+        # Validate embedding model is available before starting job
+        try:
+            test_store = VectorStore(ollama_url=OLLAMA_URL)
+
+            # Test Ollama connection and model availability
+            response = req.get(f"{OLLAMA_URL}/api/tags", timeout=5)
+            response.raise_for_status()
+            models = response.json().get("models", [])
+
+            # Check if embedding model exists
+            model_names = [m["name"] for m in models]
+            if not any(test_store.embedding_model in name for name in model_names):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Embedding model '{test_store.embedding_model}' not found in Ollama. Available models: {', '.join(model_names)}"
+                )
+        except req.exceptions.ConnectionError:
+            raise HTTPException(
+                status_code=503,
+                detail="Cannot connect to Ollama server. Please ensure Ollama is running."
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error validating embedding model: {e}")
+            raise HTTPException(status_code=500, detail=f"Validation error: {str(e)}")
 
         # Create job record
         job = ProcessingJob(
