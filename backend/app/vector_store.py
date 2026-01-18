@@ -20,14 +20,20 @@ class VectorStore:
         """
         try:
             import chromadb
+            import chromadb.config as cc
         except ImportError:
-            raise ImportError("chromadb not installed. Run: pip install chromadb>=0.4.22")
+            raise ImportError("chromadb not installed. Run: pip install chromadb==0.3.21")
 
         self.ollama_url = ollama_url
-        self.embedding_model = "granite-embedding-125m-english"
+        self.embedding_model = "hf.co/bartowski/granite-embedding-125m-english-GGUF:F16"
 
-        # Initialize ChromaDB with persistent storage
-        self.client = chromadb.PersistentClient(path=persist_dir)
+        # Initialize ChromaDB with persistent storage (0.3.21 API)
+        config = cc.Settings(
+            chroma_db_impl="duckdb",
+            persist_directory=persist_dir,
+            anonymized_telemetry=False
+        )
+        self.client = chromadb.Client(config=config)
         self.collection = self.client.get_or_create_collection(
             name="messages",
             metadata={"description": "Sift enriched email messages for RAG"}
