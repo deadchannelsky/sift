@@ -33,7 +33,7 @@ class VectorStore:
             persist_directory=persist_dir,
             anonymized_telemetry=False
         )
-        self.client = chromadb.Client(config=config)
+        self.client = chromadb.Client(config)
         self.collection = self.client.get_or_create_collection(
             name="messages",
             metadata={"description": "Sift enriched email messages for RAG"}
