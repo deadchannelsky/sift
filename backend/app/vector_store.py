@@ -8,6 +8,22 @@ from typing import List, Dict, Optional
 from app.utils import logger
 
 
+class NoOpEmbeddingFunction:
+    """
+    No-op embedding function for ChromaDB 0.3.21.
+
+    ChromaDB 0.3.21 always initializes a default embedding function even when
+    embeddings are provided directly. This class prevents loading the default
+    SentenceTransformerEmbeddingFunction (which requires PyTorch and causes errors).
+
+    Since we generate embeddings externally via Ollama and add them directly to
+    ChromaDB, we don't need an embedding function at all.
+    """
+    def __call__(self, texts: List[str]) -> List[List[float]]:
+        """Return empty embeddings - never called since we provide embeddings directly"""
+        return []
+
+
 class VectorStore:
     """ChromaDB-backed vector store for semantic search over enriched messages"""
 
@@ -37,7 +53,7 @@ class VectorStore:
         self.collection = self.client.get_or_create_collection(
             name="messages",
             metadata={"description": "Sift enriched email messages for RAG"},
-            embedding_function=None
+            embedding_function=NoOpEmbeddingFunction()
         )
 
         logger.info(f"VectorStore initialized with ChromaDB at {persist_dir}")
