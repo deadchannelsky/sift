@@ -1682,25 +1682,38 @@ async function goToREPL() {
 
 async function loadREPLModels() {
     try {
+        console.log('Loading models for REPL selector...');
         const response = await apiCall('GET', '/models');
+        console.log('Models response:', response);
+
         const models = response.available_models || [];
         const select = document.getElementById('repl-model-select');
+
+        if (!select) {
+            console.error('REPL model select element not found!');
+            return;
+        }
 
         // Keep the default option, show current model
         const currentModel = response.current_model || 'default';
         select.innerHTML = `<option value="">Use current (${currentModel})</option>`;
 
         // Add all models
+        if (models.length === 0) {
+            console.warn('No models in available_models array');
+        }
+
         models.forEach(model => {
             const opt = document.createElement('option');
             opt.value = model.name;
-            opt.textContent = `${model.name} (${model.size_gb.toFixed(1)}GB)`;
+            const sizeStr = model.size_gb ? ` (${model.size_gb.toFixed(1)}GB)` : '';
+            opt.textContent = `${model.name}${sizeStr}`;
             select.appendChild(opt);
         });
 
-        console.log(`Loaded ${models.length} models for REPL selector`);
+        console.log(`✅ Loaded ${models.length} models for REPL selector`);
     } catch (error) {
-        console.error('❌ Error loading models:', error);
+        console.error('❌ Error loading REPL models:', error);
     }
 }
 

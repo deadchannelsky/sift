@@ -8,7 +8,7 @@ email corpus, demonstrating RLM (Recursive Language Models) approach.
 import json
 import traceback
 from typing import Dict, List, Any, Tuple, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from collections import defaultdict
 from sqlalchemy.orm import Session
 
@@ -354,6 +354,7 @@ class REPLEngine:
             'None': None,
             # Date/time support for temporal queries
             'datetime': datetime,
+            'timedelta': timedelta,
         }
 
         # Add helper functions
