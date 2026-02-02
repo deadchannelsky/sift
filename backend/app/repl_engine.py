@@ -94,9 +94,11 @@ class REPLEngine:
                     # Extract specific fields for easier querying
                     if ext.task_name == "task_a_projects" and "extractions" in data:
                         for p in data["extractions"]:
-                            if p.get("project"):
-                                projects.append(p["project"])
-                                all_projects.add(p["project"].lower())
+                            # Field can be "project" or "extraction" depending on prompt version
+                            project_name = p.get("project") or p.get("extraction")
+                            if project_name:
+                                projects.append(project_name)
+                                all_projects.add(project_name.lower())
 
                     elif ext.task_name == "task_b_stakeholders" and "extractions" in data:
                         for s in data["extractions"]:
@@ -145,18 +147,28 @@ class REPLEngine:
 
         self.corpus = corpus
 
-        # Build stats
+        # Build stats from the final corpus (more reliable than tracking during loop)
         date_range = ""
         if dates:
             min_date = min(dates)
             max_date = max(dates)
             date_range = f"{min_date.strftime('%Y-%m-%d')} to {max_date.strftime('%Y-%m-%d')}"
 
+        # Count unique senders and projects from the built corpus
+        final_senders = set()
+        final_projects = set()
+        for entry in corpus:
+            if entry.get("sender_email"):
+                final_senders.add(entry["sender_email"].lower())
+            for proj in entry.get("projects", []):
+                if proj:
+                    final_projects.add(proj.lower())
+
         self.corpus_stats = {
             "total_messages": len(corpus),
             "date_range": date_range,
-            "unique_senders": len(all_senders),
-            "unique_projects": len(all_projects)
+            "unique_senders": len(final_senders),
+            "unique_projects": len(final_projects)
         }
 
         logger.info(f"Corpus loaded: {self.corpus_stats}")
@@ -335,6 +347,8 @@ class REPLEngine:
             'True': True,
             'False': False,
             'None': None,
+            # Date/time support for temporal queries
+            'datetime': datetime,
         }
 
         # Add helper functions
