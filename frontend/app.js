@@ -1821,27 +1821,9 @@ function displayREPLTrace(trace, modelUsed) {
 function highlightPython(code) {
     if (!code) return '';
 
-    // Escape HTML first
-    let escaped = escapeHtml(code);
-
-    // Simple keyword highlighting
-    const keywords = ['for', 'in', 'if', 'else', 'elif', 'return', 'def', 'class', 'import', 'from', 'as', 'and', 'or', 'not', 'True', 'False', 'None', 'lambda', 'with', 'try', 'except', 'finally'];
-    keywords.forEach(kw => {
-        const regex = new RegExp(`\\b(${kw})\\b`, 'g');
-        escaped = escaped.replace(regex, '<span class="keyword">$1</span>');
-    });
-
-    // Highlight strings (simple version - single and double quotes)
-    escaped = escaped.replace(/(&quot;[^&]*&quot;|&#x27;[^&]*&#x27;)/g, '<span class="string">$1</span>');
-    escaped = escaped.replace(/(\"[^\"]*\"|\'[^\']*\')/g, '<span class="string">$1</span>');
-
-    // Highlight function calls (word followed by parenthesis)
-    escaped = escaped.replace(/\b([a-z_][a-z0-9_]*)\s*\(/gi, '<span class="function">$1</span>(');
-
-    // Highlight comments
-    escaped = escaped.replace(/(#.*)/g, '<span class="comment">$1</span>');
-
-    return escaped;
+    // Just escape HTML - syntax highlighting was causing issues
+    // (replacing 'class' inside span tags, etc.)
+    return escapeHtml(code);
 }
 
 function escapeHtml(text) {

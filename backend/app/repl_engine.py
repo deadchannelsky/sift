@@ -440,23 +440,21 @@ Each message in corpus is a dict with:
 - is_meeting (bool)
 """
 
-        prompt = f"""You are a Python programmer exploring an email corpus to answer questions.
+        prompt = f"""You are a Python programmer. Write ONLY Python code, nothing else.
 
 The variable `corpus` is a list of message dicts already loaded in memory.
 
 {helper_docs}
 
-IMPORTANT CONSTRAINTS:
-- Do NOT use import statements (all needed functions are already available)
-- Do NOT use print() - assign results to `result` variable
-- The datetime class is available directly (use datetime, not datetime.datetime)
-- Use the helper functions above - they're already defined
+STRICT RULES:
+- Output ONLY valid Python code
+- NO explanations, NO markdown, NO comments about what you're doing
+- NO conversational text like "Yes" or "Would you like..."
+- Assign your answer to the variable `result`
+- Do NOT use import statements
+- Do NOT use print()
 
 Corpus stats: {json.dumps(self.corpus_stats)}
-
-Write Python code to answer this question. Assign the final answer to `result`.
-Keep code concise. Use helper functions when available.
-Only output Python code, no markdown, no explanations.
 
 """
 
