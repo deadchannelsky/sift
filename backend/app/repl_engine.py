@@ -171,6 +171,11 @@ class REPLEngine:
             "unique_projects": len(final_projects)
         }
 
+        # Debug: log sample sender data to diagnose why senders might be 0
+        if len(final_senders) == 0 and len(corpus) > 0:
+            sample_senders = [entry.get("sender_email", "MISSING") for entry in corpus[:5]]
+            logger.warning(f"No senders found! Sample sender_email values: {sample_senders}")
+
         logger.info(f"Corpus loaded: {self.corpus_stats}")
         return self.corpus_stats
 
@@ -439,6 +444,12 @@ Each message in corpus is a dict with:
 The variable `corpus` is a list of message dicts already loaded in memory.
 
 {helper_docs}
+
+IMPORTANT CONSTRAINTS:
+- Do NOT use import statements (all needed functions are already available)
+- Do NOT use print() - assign results to `result` variable
+- The datetime class is available directly (use datetime, not datetime.datetime)
+- Use the helper functions above - they're already defined
 
 Corpus stats: {json.dumps(self.corpus_stats)}
 

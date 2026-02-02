@@ -1682,11 +1682,13 @@ async function goToREPL() {
 
 async function loadREPLModels() {
     try {
-        const models = await apiCall('GET', '/models');
+        const response = await apiCall('GET', '/models');
+        const models = response.available_models || [];
         const select = document.getElementById('repl-model-select');
 
-        // Keep the default option
-        select.innerHTML = '<option value="">Use default model</option>';
+        // Keep the default option, show current model
+        const currentModel = response.current_model || 'default';
+        select.innerHTML = `<option value="">Use current (${currentModel})</option>`;
 
         // Add all models
         models.forEach(model => {
@@ -1695,6 +1697,8 @@ async function loadREPLModels() {
             opt.textContent = `${model.name} (${model.size_gb.toFixed(1)}GB)`;
             select.appendChild(opt);
         });
+
+        console.log(`Loaded ${models.length} models for REPL selector`);
     } catch (error) {
         console.error('❌ Error loading models:', error);
     }
