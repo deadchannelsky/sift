@@ -81,6 +81,9 @@ class ExtractionResult:
 class EnrichmentEngine:
     """Run enrichment pipeline on messages"""
 
+    # Max body length before truncation (leave room for prompt overhead)
+    MAX_BODY_CHARS = 28000
+
     def __init__(self, ollama_client: OllamaClient, prompt_manager: PromptManager, db_session: Session):
         """Initialize enrichment engine
 
@@ -92,16 +95,33 @@ class EnrichmentEngine:
         self.ollama = ollama_client
         self.prompts = prompt_manager
         self.db = db_session
+        # Standard tasks run in parallel
         self.task_names = ["task_a_projects", "task_b_stakeholders", "task_c_importance", "task_d_meetings"]
+        # Task E is special - two-prompt sequential (summary first, then sentiment)
+        self.task_e_enabled = True
         self.stats = {
             "messages_processed": 0,
             "extractions_successful": 0,
             "extractions_failed": 0,
             "total_processing_time_ms": 0,
+            "task_e_processed": 0,
+            "bodies_truncated": 0,
         }
 
+    def _truncate_body(self, body: str) -> str:
+        """Smart truncation for bodies exceeding context limit.
+
+        Keeps first half and last half to preserve opening context and conclusions.
+        """
+        if not body or len(body) <= self.MAX_BODY_CHARS:
+            return body
+
+        self.stats["bodies_truncated"] += 1
+        half = self.MAX_BODY_CHARS // 2
+        return body[:half] + "\n\n[... content truncated for length ...]\n\n" + body[-half:]
+
     def enrich_message(self, message: Message, config: Dict) -> Dict[str, ExtractionResult]:
-        """Enrich a single message with all 4 extraction tasks
+        """Enrich a single message with all extraction tasks
 
         Args:
             message: Message object from database
@@ -123,6 +143,7 @@ class EnrichmentEngine:
             "message_class": message.message_class or "",
         }
 
+        # Run standard tasks A-D
         for task_name in self.task_names:
             try:
                 # Get prompt for this task from config
@@ -158,6 +179,103 @@ class EnrichmentEngine:
                 result = ExtractionResult(task_name, "", "")
                 result.error = str(e)
                 results[task_name] = result
+
+        # Run Task E (two-prompt sequential: summary -> sentiment)
+        if self.task_e_enabled:
+            task_e_results = self._run_task_e(message, message_data, config)
+            results.update(task_e_results)
+
+        return results
+
+    def _run_task_e(self, message: Message, message_data: Dict, config: Dict) -> Dict[str, ExtractionResult]:
+        """Run Task E: Summary + Sentiment (two prompts, sequential)
+
+        E1 (Summary) runs first with full body, produces summary/email_type/topics.
+        E2 (Sentiment) runs second, receives E1 output for context efficiency.
+
+        Args:
+            message: Message object
+            message_data: Pre-extracted message fields
+            config: Config dict
+
+        Returns:
+            Dict with task_e_summary and task_e_sentiment results
+        """
+        results = {}
+
+        # === TASK E1: Summary & Classification ===
+        try:
+            prompt_id_e1 = config.get("prompts", {}).get("task_e_summary", "task_e_summary_v1")
+            prompt_e1 = self.prompts.get_prompt(prompt_id_e1)
+
+            if not prompt_e1:
+                logger.warning(f"Task E1 prompt not found: {prompt_id_e1}")
+                result_e1 = ExtractionResult("task_e_summary", prompt_id_e1, "")
+                result_e1.error = f"Prompt not found: {prompt_id_e1}"
+                results["task_e_summary"] = result_e1
+                return results
+
+            # Prepare E1 data with truncated full body
+            e1_data = message_data.copy()
+            body = message_data.get("body_full") or message_data.get("body_snippet") or ""
+            e1_data["body"] = self._truncate_body(body)
+
+            # Call LLM for E1
+            filled_prompt_e1 = prompt_e1.substitute_variables(e1_data)
+            start_time = time.time()
+            response_e1 = self.ollama.generate(filled_prompt_e1)
+            processing_time_e1 = (time.time() - start_time) * 1000
+
+            result_e1 = ExtractionResult("task_e_summary", prompt_id_e1, response_e1)
+            result_e1.processing_time_ms = int(processing_time_e1)
+            results["task_e_summary"] = result_e1
+
+            if not result_e1.is_valid():
+                logger.warning(f"Task E1 failed for {message.msg_id}, skipping E2")
+                return results
+
+            self.stats["task_e_processed"] += 1
+
+        except Exception as e:
+            logger.error(f"Error in Task E1 for {message.msg_id}: {e}")
+            result_e1 = ExtractionResult("task_e_summary", "", "")
+            result_e1.error = str(e)
+            results["task_e_summary"] = result_e1
+            return results
+
+        # === TASK E2: Sentiment & Relationship ===
+        try:
+            prompt_id_e2 = config.get("prompts", {}).get("task_e_sentiment", "task_e_sentiment_v1")
+            prompt_e2 = self.prompts.get_prompt(prompt_id_e2)
+
+            if not prompt_e2:
+                logger.warning(f"Task E2 prompt not found: {prompt_id_e2}")
+                result_e2 = ExtractionResult("task_e_sentiment", prompt_id_e2, "")
+                result_e2.error = f"Prompt not found: {prompt_id_e2}"
+                results["task_e_sentiment"] = result_e2
+                return results
+
+            # Prepare E2 data with E1 results for context
+            e1_json = result_e1.parsed_json
+            e2_data = message_data.copy()
+            e2_data["summary"] = e1_json.get("summary", "")
+            e2_data["email_type"] = e1_json.get("email_type", "unknown")
+
+            # Call LLM for E2
+            filled_prompt_e2 = prompt_e2.substitute_variables(e2_data)
+            start_time = time.time()
+            response_e2 = self.ollama.generate(filled_prompt_e2)
+            processing_time_e2 = (time.time() - start_time) * 1000
+
+            result_e2 = ExtractionResult("task_e_sentiment", prompt_id_e2, response_e2)
+            result_e2.processing_time_ms = int(processing_time_e2)
+            results["task_e_sentiment"] = result_e2
+
+        except Exception as e:
+            logger.error(f"Error in Task E2 for {message.msg_id}: {e}")
+            result_e2 = ExtractionResult("task_e_sentiment", "", "")
+            result_e2.error = str(e)
+            results["task_e_sentiment"] = result_e2
 
         return results
 

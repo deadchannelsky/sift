@@ -1815,6 +1815,195 @@ async def get_repl_history(session_id: str):
 
 
 # ============================================================================
+# DATA INSPECTOR ENDPOINTS
+# ============================================================================
+
+@app.get("/inspector/stats")
+async def get_inspector_stats():
+    """Get message statistics for the data inspector
+
+    Returns counts of total, enriched, pending, failed messages
+    and count of messages with Task E extractions.
+    """
+    try:
+        db_path = get_db_path()
+        engine = init_db(db_path)
+        db = get_session(engine)
+
+        try:
+            total = db.query(Message).count()
+            enriched = db.query(Message).filter_by(enrichment_status="completed").count()
+            pending = db.query(Message).filter_by(enrichment_status="pending").count()
+            failed = db.query(Message).filter_by(enrichment_status="failed").count()
+
+            # Count messages with Task E extractions
+            task_e_count = db.query(Extraction).filter_by(task_name="task_e_summary").count()
+
+            return {
+                "success": True,
+                "stats": {
+                    "total": total,
+                    "enriched": enriched,
+                    "pending": pending,
+                    "failed": failed,
+                    "task_e": task_e_count
+                }
+            }
+
+        finally:
+            db.close()
+
+    except Exception as e:
+        logger.error(f"Error getting inspector stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/inspector/messages")
+async def get_inspector_messages(
+    status: str = "all",
+    search: str = "",
+    page: int = 1,
+    page_size: int = 25
+):
+    """Get paginated list of messages for the inspector
+
+    Args:
+        status: Filter by enrichment_status (all, completed, pending, failed)
+        search: Search term for subject or sender
+        page: Page number (1-indexed)
+        page_size: Number of messages per page
+
+    Returns:
+        List of message summaries with pagination info
+    """
+    try:
+        db_path = get_db_path()
+        engine = init_db(db_path)
+        db = get_session(engine)
+
+        try:
+            query = db.query(Message)
+
+            # Filter by status
+            if status != "all":
+                query = query.filter_by(enrichment_status=status)
+
+            # Search filter
+            if search:
+                search_pattern = f"%{search}%"
+                query = query.filter(
+                    (Message.subject.ilike(search_pattern)) |
+                    (Message.sender_email.ilike(search_pattern)) |
+                    (Message.sender_name.ilike(search_pattern))
+                )
+
+            # Get total count before pagination
+            total_count = query.count()
+
+            # Order and paginate
+            offset = (page - 1) * page_size
+            messages = query.order_by(Message.delivery_date.desc()).offset(offset).limit(page_size).all()
+
+            return {
+                "success": True,
+                "messages": [
+                    {
+                        "id": msg.id,
+                        "subject": (msg.subject or "")[:80],
+                        "sender_email": msg.sender_email or "",
+                        "sender_name": msg.sender_name or "",
+                        "date": msg.delivery_date.strftime("%Y-%m-%d") if msg.delivery_date else "",
+                        "status": msg.enrichment_status or "pending"
+                    }
+                    for msg in messages
+                ],
+                "pagination": {
+                    "page": page,
+                    "page_size": page_size,
+                    "total_count": total_count,
+                    "total_pages": (total_count + page_size - 1) // page_size
+                }
+            }
+
+        finally:
+            db.close()
+
+    except Exception as e:
+        logger.error(f"Error getting inspector messages: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/inspector/message/{message_id}")
+async def get_inspector_message_detail(message_id: int):
+    """Get detailed message data including all extractions
+
+    Args:
+        message_id: Database ID of the message
+
+    Returns:
+        Full message data and all extraction results
+    """
+    try:
+        db_path = get_db_path()
+        engine = init_db(db_path)
+        db = get_session(engine)
+
+        try:
+            message = db.query(Message).filter_by(id=message_id).first()
+            if not message:
+                raise HTTPException(status_code=404, detail=f"Message {message_id} not found")
+
+            # Get all extractions for this message
+            extractions = db.query(Extraction).filter_by(message_id=message_id).all()
+
+            extraction_data = {}
+            for ext in extractions:
+                try:
+                    parsed = json_lib.loads(ext.extraction_json) if ext.extraction_json else None
+                    extraction_data[ext.task_name] = {
+                        "data": parsed,
+                        "confidence": ext.confidence,
+                        "prompt_version": ext.prompt_version,
+                        "processing_time_ms": ext.processing_time_ms
+                    }
+                except json_lib.JSONDecodeError:
+                    extraction_data[ext.task_name] = {
+                        "data": None,
+                        "error": "JSON parse error",
+                        "raw": ext.extraction_json[:500] if ext.extraction_json else None
+                    }
+
+            return {
+                "success": True,
+                "message": {
+                    "id": message.id,
+                    "msg_id": message.msg_id,
+                    "subject": message.subject or "",
+                    "sender_email": message.sender_email or "",
+                    "sender_name": message.sender_name or "",
+                    "recipients": message.recipients or "",
+                    "cc": message.cc or "",
+                    "date": message.delivery_date.isoformat() if message.delivery_date else "",
+                    "body_snippet": (message.body_full or message.body_snippet or "")[:2000],
+                    "body_length": len(message.body_full or message.body_snippet or ""),
+                    "message_class": message.message_class or "",
+                    "enrichment_status": message.enrichment_status or "pending",
+                    "is_spurious": message.is_spurious
+                },
+                "extractions": extraction_data
+            }
+
+        finally:
+            db.close()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting message detail: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
 # BACKGROUND TASKS
 # ============================================================================
 

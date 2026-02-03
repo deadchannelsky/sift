@@ -1,0 +1,35 @@
+{
+  "prompt_id": "task_e_sentiment_v1",
+  "version": "1.0.0",
+  "task": "sentiment_analysis",
+  "description": "Analyzes email tone, sentiment, and relationship signals. Second pass of two-prompt enrichment - receives summary from Task E1 to reduce context.",
+  "model_params": {
+    "temperature": 0.2,
+    "num_predict": 500,
+    "stop_sequences": []
+  },
+  "prompt_template": "You are analyzing workplace communication patterns and sentiment.\n\n---\n\nEMAIL CONTEXT:\nSubject: {subject}\nFrom: {sender_name} <{sender_email}>\nTo: {recipients}\nDate: {delivery_date}\nType: {email_type}\nSummary: {summary}\n\nBody Excerpt:\n{body_snippet}\n\n---\n\nTASK: Analyze the tone, sentiment, and relationship dynamics in this email.\n\nRESPOND ONLY WITH VALID JSON (no preamble, no markdown backticks):\n\n{\n  \"tone\": \"formal|casual|urgent|friendly|terse|diplomatic|frustrated|enthusiastic|neutral\",\n  \"sentiment_score\": 0.0,\n  \"sentiment_label\": \"positive|neutral|negative|mixed\",\n  \"relationship_signals\": {\n    \"collaboration_level\": \"high|medium|low\",\n    \"power_dynamic\": \"peer|upward|downward|external|unclear\",\n    \"rapport_indicators\": [\"indicator1\", \"indicator2\"]\n  },\n  \"communication_style\": {\n    \"directness\": \"direct|indirect|mixed\",\n    \"formality\": \"high|medium|low\",\n    \"detail_level\": \"comprehensive|moderate|brief\"\n  },\n  \"flags\": []\n}\n\nSENTIMENT SCORE GUIDELINES:\n- Range: -1.0 (very negative) to +1.0 (very positive), 0.0 is neutral\n- Consider: word choice, punctuation, context, underlying message\n- Professional frustration might be -0.3, while genuine anger is -0.7+\n- Enthusiasm and gratitude push positive, complaints and criticism push negative\n\nTONE DEFINITIONS:\n- formal: Professional language, structured, impersonal\n- casual: Relaxed, conversational, may include humor\n- urgent: Time-sensitive language, exclamation points, \"ASAP\"\n- friendly: Warm, personal touches, rapport-building\n- terse: Brief, minimal words, potentially curt\n- diplomatic: Careful language, hedging, avoiding conflict\n- frustrated: Signs of annoyance, repeated requests, escalation language\n- enthusiastic: Excited, positive energy, exclamation points (non-urgent)\n- neutral: Matter-of-fact, no strong emotional signals\n\nRELATIONSHIP SIGNALS:\n- collaboration_level: How much back-and-forth/teamwork implied\n- power_dynamic: Who has authority in this exchange\n- rapport_indicators: Specific phrases showing relationship quality (e.g., \"Thanks for your help\", \"As discussed\", \"Per my last email\")\n\nFLAGS (optional, add if detected):\n- ESCALATION_RISK: Frustration may escalate\n- RELATIONSHIP_STRAIN: Signs of friction\n- HIGH_ENGAGEMENT: Strong positive collaboration\n- DEADLINE_PRESSURE: Time stress evident\n- POLITICAL: Careful/diplomatic language suggesting sensitivity",
+  "example_output": {
+    "tone": "frustrated",
+    "sentiment_score": -0.4,
+    "sentiment_label": "negative",
+    "relationship_signals": {
+      "collaboration_level": "medium",
+      "power_dynamic": "upward",
+      "rapport_indicators": ["As I mentioned previously", "following up again"]
+    },
+    "communication_style": {
+      "directness": "direct",
+      "formality": "medium",
+      "detail_level": "moderate"
+    },
+    "flags": ["DEADLINE_PRESSURE", "ESCALATION_RISK"]
+  },
+  "notes": [
+    "Receives summary from Task E1 to reduce context and improve focus",
+    "Uses body_snippet (500 chars) for tone cues, not full body",
+    "Flags are optional - only add when clearly applicable",
+    "sentiment_score should align with sentiment_label"
+  ],
+  "tags": ["enrichment", "task_e", "sentiment", "tone", "relationship", "v1"]
+}
