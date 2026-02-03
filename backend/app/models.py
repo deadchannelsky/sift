@@ -267,6 +267,43 @@ class MessageEmbedding(Base):
         return f"<MessageEmbedding(msg={self.message_id}, model={self.embedding_model})>"
 
 
+# ============================================================================
+# REPL (CODE-BASED EXPLORATION) MODELS
+# ============================================================================
+
+class REPLSession(Base):
+    """REPL exploration session metadata"""
+    __tablename__ = "repl_sessions"
+
+    id = Column(String(100), primary_key=True)  # UUID
+    model_used = Column(String(100), nullable=True)  # Model used for code generation
+    corpus_message_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_query_at = Column(DateTime, nullable=True)
+    query_count = Column(Integer, default=0)
+
+    def __repr__(self):
+        return f"<REPLSession(id={self.id}, queries={self.query_count}, model={self.model_used})>"
+
+
+class REPLQueryHistory(Base):
+    """Query/trace history for each REPL session"""
+    __tablename__ = "repl_query_history"
+
+    id = Column(Integer, primary_key=True)
+    session_id = Column(String(100), ForeignKey("repl_sessions.id"), index=True)
+    query = Column(Text, nullable=False)
+    answer = Column(Text, nullable=False)
+    trace_json = Column(Text, nullable=True)  # JSON array of exploration steps
+    model_used = Column(String(100), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    session = relationship("REPLSession", backref="queries")
+
+    def __repr__(self):
+        return f"<REPLQueryHistory(session={self.session_id}, query={self.query[:50]}...)>"
+
+
 def init_db(db_path: str = "data/messages.db"):
     """Initialize database and create all tables
 

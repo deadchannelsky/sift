@@ -14,7 +14,7 @@ import os
 import time
 from pathlib import Path
 
-from app.models import init_db, get_session, ProcessingJob, Message, Conversation, Extraction, AggregationSettings, ProjectClusterMetadata
+from app.models import init_db, get_session, ProcessingJob, Message, Conversation, Extraction, AggregationSettings, ProjectClusterMetadata, REPLSession, REPLQueryHistory
 from app.pst_parser import PSTParser
 from app.ollama_client import OllamaClient
 from app.prompt_manager import PromptManager
@@ -22,6 +22,7 @@ from app.enrichment import EnrichmentEngine
 from app.aggregator import AggregationEngine
 from app.reporter import ReporterEngine
 from app.post_aggregation_filter import PostAggregationFilter
+from app.repl_engine import REPLEngine
 from app.file_upload import (
     sanitize_filename, validate_pst_file, check_disk_space,
     save_uploaded_file, cleanup_old_uploads, get_upload_stats
@@ -1599,6 +1600,217 @@ async def get_message_details(message_id: int):
         raise
     except Exception as e:
         logger.error(f"Error getting message details: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# REPL (CODE-BASED EXPLORATION) ENDPOINTS
+# ============================================================================
+
+@app.get("/repl/corpus/stats")
+async def get_repl_corpus_stats():
+    """Get corpus statistics for REPL exploration
+
+    Returns message count, date range, unique senders/projects
+    """
+    try:
+        db_path = get_db_path()
+        engine = init_db(db_path)
+        db = get_session(engine)
+
+        try:
+            repl_engine = REPLEngine(db, ollama_client, prompt_manager)
+            stats = repl_engine.get_corpus_stats()
+
+            return {
+                "success": True,
+                "stats": stats
+            }
+
+        finally:
+            db.close()
+
+    except Exception as e:
+        logger.error(f"Error getting REPL corpus stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/repl/session")
+async def create_repl_session():
+    """Create new REPL exploration session
+
+    Returns session ID and corpus stats
+    """
+    try:
+        db_path = get_db_path()
+        engine = init_db(db_path)
+        db = get_session(engine)
+
+        try:
+            # Load corpus stats
+            repl_engine = REPLEngine(db, ollama_client, prompt_manager)
+            stats = repl_engine.get_corpus_stats()
+
+            if stats["total_messages"] == 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="No enriched messages available. Run the enrichment pipeline first."
+                )
+
+            # Create session
+            session_id = str(uuid.uuid4())
+            session = REPLSession(
+                id=session_id,
+                model_used=ollama_client.model if ollama_client else None,
+                corpus_message_count=stats["total_messages"]
+            )
+            db.add(session)
+            db.commit()
+
+            logger.info(f"Created REPL session {session_id} with {stats['total_messages']} messages")
+
+            return {
+                "success": True,
+                "session_id": session_id,
+                "corpus_stats": stats,
+                "current_model": ollama_client.model if ollama_client else None
+            }
+
+        finally:
+            db.close()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating REPL session: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/repl/{session_id}/query")
+async def repl_query(session_id: str, request: dict):
+    """Execute REPL query with code generation
+
+    Request body:
+        - question: Natural language question about the corpus
+        - max_iterations: Max exploration iterations (default 3)
+        - model: Optional model override for this query
+
+    Returns:
+        - answer: Final interpreted answer
+        - trace: List of exploration steps (code, result, interpretation)
+        - corpus_stats: Corpus statistics
+        - model_used: Model that was used
+    """
+    try:
+        question = request.get("question", "").strip()
+        if not question:
+            raise HTTPException(status_code=400, detail="Question is required")
+
+        max_iterations = request.get("max_iterations", 3)
+        model_override = request.get("model")
+
+        db_path = get_db_path()
+        engine = init_db(db_path)
+        db = get_session(engine)
+
+        try:
+            # Verify session exists
+            session = db.query(REPLSession).filter_by(id=session_id).first()
+            if not session:
+                raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+
+            # Execute REPL query
+            repl_engine = REPLEngine(db, ollama_client, prompt_manager)
+            result = repl_engine.query(
+                user_question=question,
+                max_iterations=max_iterations,
+                model_override=model_override
+            )
+
+            # Save to history
+            history_entry = REPLQueryHistory(
+                session_id=session_id,
+                query=question,
+                answer=result["answer"],
+                trace_json=json_lib.dumps(result["trace"], default=str),
+                model_used=result["model_used"]
+            )
+            db.add(history_entry)
+
+            # Update session
+            session.last_query_at = datetime.utcnow()
+            session.query_count += 1
+            session.model_used = result["model_used"]
+
+            db.commit()
+
+            logger.info(f"REPL query completed: {len(result['trace'])} steps, model={result['model_used']}")
+
+            return {
+                "success": True,
+                "answer": result["answer"],
+                "trace": result["trace"],
+                "corpus_stats": result["corpus_stats"],
+                "model_used": result["model_used"],
+                "session_id": session_id
+            }
+
+        finally:
+            db.close()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error executing REPL query: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/repl/{session_id}/history")
+async def get_repl_history(session_id: str):
+    """Get query history for REPL session
+
+    Returns list of previous queries with their traces
+    """
+    try:
+        db_path = get_db_path()
+        engine = init_db(db_path)
+        db = get_session(engine)
+
+        try:
+            session = db.query(REPLSession).filter_by(id=session_id).first()
+            if not session:
+                raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+
+            history = db.query(REPLQueryHistory).filter_by(
+                session_id=session_id
+            ).order_by(REPLQueryHistory.created_at.desc()).all()
+
+            return {
+                "success": True,
+                "session_id": session_id,
+                "query_count": len(history),
+                "history": [
+                    {
+                        "id": h.id,
+                        "query": h.query,
+                        "answer": h.answer,
+                        "trace": json_lib.loads(h.trace_json) if h.trace_json else [],
+                        "model_used": h.model_used,
+                        "created_at": h.created_at.isoformat() if h.created_at else None
+                    }
+                    for h in history
+                ]
+            }
+
+        finally:
+            db.close()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting REPL history: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

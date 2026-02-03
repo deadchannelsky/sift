@@ -418,6 +418,12 @@ function updateJobCard(jobType, status) {
             document.getElementById('rag-status').className = 'status-badge pending';
             document.getElementById('rag-status').textContent = 'Ready';
             document.getElementById('rag-info').textContent = 'Click "Generate Embeddings" to enable semantic search';
+            // Show REPL Explorer button (code-based exploration)
+            document.getElementById('open-repl-btn').style.display = 'inline-block';
+            document.getElementById('repl-status').className = 'status-badge';
+            document.getElementById('repl-status').style.background = '#d1fae5';
+            document.getElementById('repl-status').style.color = '#065f46';
+            document.getElementById('repl-status').textContent = 'Ready';
         }
     }
 
@@ -868,18 +874,25 @@ function resumePipeline(stage) {
         goToPipeline();
         startEnrichment();
     } else if (stage === 'aggregate') {
-        // Start aggregation directly - but first show RAG button since enrichment is complete
+        // Start aggregation directly - but first show RAG and REPL buttons since enrichment is complete
         console.log('Resuming at aggregation stage...');
         goToPipeline();
 
-        // Show both aggregate and RAG buttons (enrichment already done)
+        // Show aggregate, RAG, and REPL buttons (enrichment already done)
         document.getElementById('start-aggregate-btn').style.display = 'inline-block';
         document.getElementById('start-rag-embed-btn').style.display = 'inline-block';
         document.getElementById('rag-status').className = 'status-badge pending';
         document.getElementById('rag-status').textContent = 'Ready';
         document.getElementById('rag-info').textContent = 'Click "Generate Embeddings" to enable semantic search';
 
-        // User must manually choose between "Start Aggregation" or "Generate Embeddings"
+        // Show REPL button (code-based exploration)
+        document.getElementById('open-repl-btn').style.display = 'inline-block';
+        document.getElementById('repl-status').className = 'status-badge';
+        document.getElementById('repl-status').style.background = '#d1fae5';
+        document.getElementById('repl-status').style.color = '#065f46';
+        document.getElementById('repl-status').textContent = 'Ready';
+
+        // User must manually choose between "Start Aggregation", "Generate Embeddings", or "REPL"
     }
 }
 
@@ -1631,5 +1644,225 @@ async function expandCitation(messageId) {
 function clearRAGSession() {
     if (confirm('Clear chat history and start a fresh session?')) {
         goToRAGChat();
+    }
+}
+
+// ============================================================================
+// REPL EXPLORER FUNCTIONS
+// ============================================================================
+
+let replSessionId = null;
+
+async function goToREPL() {
+    showPage('repl-page');
+
+    // Load models for the model selector
+    await loadREPLModels();
+
+    // Create session and load corpus stats
+    try {
+        const response = await apiCall('POST', '/repl/session');
+        if (response.success) {
+            replSessionId = response.session_id;
+
+            // Update corpus stats display
+            const stats = response.corpus_stats;
+            document.getElementById('repl-stat-messages').textContent = stats.total_messages.toLocaleString();
+            document.getElementById('repl-stat-dates').textContent = stats.date_range || 'N/A';
+            document.getElementById('repl-stat-senders').textContent = stats.unique_senders.toLocaleString();
+            document.getElementById('repl-stat-projects').textContent = stats.unique_projects.toLocaleString();
+
+            console.log('✅ REPL session created:', replSessionId);
+        }
+    } catch (error) {
+        console.error('❌ Error creating REPL session:', error);
+        alert('Failed to create REPL session: ' + error.message);
+    }
+}
+
+async function loadREPLModels() {
+    try {
+        console.log('Loading models for REPL selector...');
+        const response = await apiCall('GET', '/models');
+        console.log('Models response:', response);
+
+        const models = response.available_models || [];
+        const select = document.getElementById('repl-model-select');
+
+        if (!select) {
+            console.error('REPL model select element not found!');
+            return;
+        }
+
+        // Keep the default option, show current model
+        const currentModel = response.current_model || 'default';
+        select.innerHTML = `<option value="">Use current (${currentModel})</option>`;
+
+        // Add all models
+        if (models.length === 0) {
+            console.warn('No models in available_models array');
+        }
+
+        models.forEach(model => {
+            const opt = document.createElement('option');
+            opt.value = model.name;
+            const sizeStr = model.size_gb ? ` (${model.size_gb.toFixed(1)}GB)` : '';
+            opt.textContent = `${model.name}${sizeStr}`;
+            select.appendChild(opt);
+        });
+
+        console.log(`✅ Loaded ${models.length} models for REPL selector`);
+    } catch (error) {
+        console.error('❌ Error loading REPL models:', error);
+    }
+}
+
+async function sendREPLQuery() {
+    const input = document.getElementById('repl-query-input');
+    const question = input.value.trim();
+
+    if (!question) {
+        alert('Please enter a question');
+        return;
+    }
+
+    if (!replSessionId) {
+        alert('No REPL session active. Please refresh the page.');
+        return;
+    }
+
+    // Get selected model
+    const modelSelect = document.getElementById('repl-model-select');
+    const model = modelSelect.value || null;
+
+    // Show loading
+    document.getElementById('repl-loading').style.display = 'block';
+    document.getElementById('repl-send-btn').disabled = true;
+    document.getElementById('repl-trace-container').style.display = 'none';
+    document.getElementById('repl-answer-container').style.display = 'none';
+
+    try {
+        const response = await apiCall('POST', `/repl/${replSessionId}/query`, {
+            question: question,
+            max_iterations: 3,
+            model: model
+        });
+
+        if (response.success) {
+            // Display the trace
+            displayREPLTrace(response.trace, response.model_used);
+
+            // Display the answer
+            displayREPLAnswer(response.answer);
+
+            // Show history section
+            document.getElementById('repl-history-section').style.display = 'block';
+
+            // Clear input
+            input.value = '';
+        }
+    } catch (error) {
+        console.error('❌ REPL query error:', error);
+        alert('REPL query failed: ' + error.message);
+    } finally {
+        document.getElementById('repl-loading').style.display = 'none';
+        document.getElementById('repl-send-btn').disabled = false;
+    }
+}
+
+function displayREPLTrace(trace, modelUsed) {
+    const container = document.getElementById('repl-trace-container');
+    const stepsDiv = document.getElementById('repl-trace-steps');
+    const modelSpan = document.getElementById('repl-trace-model');
+
+    container.style.display = 'block';
+    modelSpan.textContent = `Model: ${modelUsed}`;
+
+    stepsDiv.innerHTML = '';
+
+    trace.forEach((step, index) => {
+        const stepDiv = document.createElement('div');
+        stepDiv.className = 'repl-step';
+
+        const hasError = !!step.error;
+        const statusClass = hasError ? 'error' : 'success';
+        const statusText = hasError ? 'Error' : 'Executed';
+
+        // Syntax highlight the code (simple version)
+        const highlightedCode = highlightPython(step.code);
+
+        // Format the result
+        let resultContent;
+        if (hasError) {
+            resultContent = `<div class="repl-error-content">${escapeHtml(step.error)}</div>`;
+        } else {
+            const resultStr = typeof step.result === 'object'
+                ? JSON.stringify(step.result, null, 2)
+                : String(step.result);
+            resultContent = `<div class="repl-result-content">${escapeHtml(resultStr)}</div>`;
+        }
+
+        stepDiv.innerHTML = `
+            <div class="repl-step-header">
+                <span class="repl-step-number">Step ${step.step}</span>
+                <span class="repl-step-status ${statusClass}">${statusText}</span>
+            </div>
+            <div class="repl-code-block">${highlightedCode}</div>
+            <div class="repl-result-block">
+                <div class="repl-result-label">Result</div>
+                ${resultContent}
+            </div>
+        `;
+
+        stepsDiv.appendChild(stepDiv);
+    });
+}
+
+function highlightPython(code) {
+    if (!code) return '';
+
+    // Just escape HTML - syntax highlighting was causing issues
+    // (replacing 'class' inside span tags, etc.)
+    return escapeHtml(code);
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function displayREPLAnswer(answer) {
+    const container = document.getElementById('repl-answer-container');
+    const content = document.getElementById('repl-answer-content');
+
+    container.style.display = 'block';
+    content.textContent = answer;
+}
+
+function clearREPLSession() {
+    if (confirm('Clear session and start fresh?')) {
+        replSessionId = null;
+        document.getElementById('repl-trace-container').style.display = 'none';
+        document.getElementById('repl-answer-container').style.display = 'none';
+        document.getElementById('repl-history-section').style.display = 'none';
+        document.getElementById('repl-query-input').value = '';
+
+        // Create new session
+        goToREPL();
+    }
+}
+
+// Update pipeline status to show REPL button when appropriate
+function updateREPLButton() {
+    // Show REPL button after enrichment is complete
+    const enrichStatus = document.getElementById('enrich-status');
+    const replBtn = document.getElementById('open-repl-btn');
+
+    if (enrichStatus && replBtn) {
+        const statusText = enrichStatus.textContent.toLowerCase();
+        if (statusText === 'completed' || statusText === 'complete') {
+            replBtn.style.display = 'inline-block';
+        }
     }
 }
