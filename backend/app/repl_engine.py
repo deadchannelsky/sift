@@ -512,6 +512,33 @@ Format your response for readability (bullet points, sections as needed).
 
         return prompt
 
+    def _build_fix_prompt(self, original_code: str, error: str) -> str:
+        """Build prompt for fixing code that errored
+
+        Args:
+            original_code: The code that failed
+            error: The error message
+
+        Returns:
+            Prompt asking LLM to fix the code
+        """
+        return f"""The following Python code produced an error. Fix it.
+
+ORIGINAL CODE:
+{original_code}
+
+ERROR:
+{error}
+
+RULES:
+- Output ONLY the corrected Python code
+- NO explanations, NO markdown
+- The variable `corpus` is a list of dicts (NOT a dict)
+- Use list comprehensions or filter functions to search
+- Assign result to `result` variable
+
+CORRECTED CODE:"""
+
     def query(
         self,
         user_question: str,
@@ -577,12 +604,51 @@ Format your response for readability (bullet points, sections as needed).
                     })
                     break
 
-                # Execute code
-                result, error = self.execute_code(generated_code)
+                # Execute code with retry on error
+                max_fix_attempts = 2
+                current_code = generated_code
+                result = None
+                error = None
+
+                for fix_attempt in range(max_fix_attempts + 1):
+                    result, error = self.execute_code(current_code)
+
+                    if not error:
+                        # Success!
+                        break
+
+                    if fix_attempt < max_fix_attempts:
+                        # Try to fix the code
+                        logger.info(f"Code error, attempting fix {fix_attempt + 1}/{max_fix_attempts}: {error}")
+                        fix_prompt = self._build_fix_prompt(current_code, error)
+
+                        try:
+                            fixed_code = self.ollama.generate(fix_prompt)
+                            # Clean up fixed code
+                            fixed_code = fixed_code.strip()
+                            if fixed_code.startswith("```python"):
+                                fixed_code = fixed_code[9:]
+                            if fixed_code.startswith("```"):
+                                fixed_code = fixed_code[3:]
+                            if fixed_code.endswith("```"):
+                                fixed_code = fixed_code[:-3]
+                            fixed_code = fixed_code.strip()
+
+                            if fixed_code and fixed_code != current_code:
+                                logger.info(f"Got fixed code, retrying execution")
+                                current_code = fixed_code
+                            else:
+                                logger.warning("Fix attempt returned same or empty code")
+                                break
+                        except Exception as fix_e:
+                            logger.error(f"Fix generation failed: {fix_e}")
+                            break
+                    else:
+                        logger.warning(f"Code execution error after {max_fix_attempts} fix attempts: {error}")
 
                 step = {
                     "step": step_num,
-                    "code": generated_code,
+                    "code": current_code,  # Use final (possibly fixed) code
                     "result": result,
                     "error": error,
                     "interpretation": None
@@ -591,9 +657,9 @@ Format your response for readability (bullet points, sections as needed).
                 trace.append(step)
 
                 if error:
-                    logger.warning(f"Code execution error: {error}")
-                    # Don't continue on error - let final interpretation handle it
-                    break
+                    # Still errored after fix attempts, continue to next iteration
+                    # (which will generate fresh code based on the error)
+                    continue
 
                 # Check if we have a meaningful result to stop
                 if result is not None:
