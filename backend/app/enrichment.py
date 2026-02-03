@@ -41,6 +41,12 @@ class ExtractionResult:
             # Sometimes LLM includes markdown code blocks or extra text
             response = self.raw_response.strip()
 
+            # Log empty responses
+            if not response:
+                logger.warning(f"[{self.task_name}] LLM returned EMPTY response")
+                self.error = "Empty response from LLM"
+                return
+
             # Remove markdown code blocks if present
             if response.startswith("```"):
                 response = response.split("```")[1]
@@ -48,6 +54,15 @@ class ExtractionResult:
                     response = response[4:]
                 response = response.strip()
 
+            # Try to find JSON object in response (handle trailing text)
+            # Look for opening brace and find matching close
+            if not response.startswith("{") and "{" in response:
+                # JSON might be preceded by text
+                json_start = response.find("{")
+                response = response[json_start:]
+                logger.debug(f"[{self.task_name}] Trimmed prefix text before JSON")
+
+            # Try parsing
             self.parsed_json = json.loads(response)
 
             # Extract confidence from parsed data
@@ -63,7 +78,9 @@ class ExtractionResult:
         except json.JSONDecodeError as e:
             self.error = f"JSON parse error: {e}"
             logger.warning(f"Failed to parse JSON from {self.task_name}: {e}")
-            logger.debug(f"Raw response: {self.raw_response[:200]}")
+            # Show more of the response to understand what's happening
+            preview = self.raw_response[:500] if self.raw_response else "(empty)"
+            logger.warning(f"[{self.task_name}] RAW RESPONSE PREVIEW: {preview}")
         except Exception as e:
             self.error = f"Unexpected error: {e}"
             logger.error(f"Error parsing extraction result: {e}")
