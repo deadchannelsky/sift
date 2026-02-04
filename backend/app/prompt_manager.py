@@ -32,6 +32,7 @@ class Prompt:
 
         Args:
             message_data: Dict with keys like "subject", "body_snippet", "sender_email", etc.
+                         For Task E2, also includes "summary" and "email_type" from E1.
 
         Returns:
             Prompt with variables substituted
@@ -49,7 +50,11 @@ class Prompt:
             "delivery_date": str(message_data.get("delivery_date", "")),
             "body_snippet": message_data.get("body_snippet", ""),
             "body_full": message_data.get("body_full", ""),
+            "body": message_data.get("body", ""),  # Task E1 uses {body} for truncated full body
             "message_class": message_data.get("message_class", ""),
+            # Task E2 chained variables (from E1 output)
+            "summary": message_data.get("summary", ""),
+            "email_type": message_data.get("email_type", ""),
         }
 
         # Replace all variables

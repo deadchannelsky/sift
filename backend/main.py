@@ -14,7 +14,7 @@ import os
 import time
 from pathlib import Path
 
-from app.models import init_db, get_session, ProcessingJob, Message, Conversation, Extraction, AggregationSettings, ProjectClusterMetadata
+from app.models import init_db, get_session, ProcessingJob, Message, Conversation, Extraction, AggregationSettings, ProjectClusterMetadata, REPLSession, REPLQueryHistory
 from app.pst_parser import PSTParser
 from app.ollama_client import OllamaClient
 from app.prompt_manager import PromptManager
@@ -22,6 +22,7 @@ from app.enrichment import EnrichmentEngine
 from app.aggregator import AggregationEngine
 from app.reporter import ReporterEngine
 from app.post_aggregation_filter import PostAggregationFilter
+from app.repl_engine import REPLEngine
 from app.file_upload import (
     sanitize_filename, validate_pst_file, check_disk_space,
     save_uploaded_file, cleanup_old_uploads, get_upload_stats
@@ -1599,6 +1600,406 @@ async def get_message_details(message_id: int):
         raise
     except Exception as e:
         logger.error(f"Error getting message details: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# REPL (CODE-BASED EXPLORATION) ENDPOINTS
+# ============================================================================
+
+@app.get("/repl/corpus/stats")
+async def get_repl_corpus_stats():
+    """Get corpus statistics for REPL exploration
+
+    Returns message count, date range, unique senders/projects
+    """
+    try:
+        db_path = get_db_path()
+        engine = init_db(db_path)
+        db = get_session(engine)
+
+        try:
+            repl_engine = REPLEngine(db, ollama_client, prompt_manager)
+            stats = repl_engine.get_corpus_stats()
+
+            return {
+                "success": True,
+                "stats": stats
+            }
+
+        finally:
+            db.close()
+
+    except Exception as e:
+        logger.error(f"Error getting REPL corpus stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/repl/session")
+async def create_repl_session():
+    """Create new REPL exploration session
+
+    Returns session ID and corpus stats
+    """
+    try:
+        db_path = get_db_path()
+        engine = init_db(db_path)
+        db = get_session(engine)
+
+        try:
+            # Load corpus stats
+            repl_engine = REPLEngine(db, ollama_client, prompt_manager)
+            stats = repl_engine.get_corpus_stats()
+
+            if stats["total_messages"] == 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="No enriched messages available. Run the enrichment pipeline first."
+                )
+
+            # Create session
+            session_id = str(uuid.uuid4())
+            session = REPLSession(
+                id=session_id,
+                model_used=ollama_client.model if ollama_client else None,
+                corpus_message_count=stats["total_messages"]
+            )
+            db.add(session)
+            db.commit()
+
+            logger.info(f"Created REPL session {session_id} with {stats['total_messages']} messages")
+
+            return {
+                "success": True,
+                "session_id": session_id,
+                "corpus_stats": stats,
+                "current_model": ollama_client.model if ollama_client else None
+            }
+
+        finally:
+            db.close()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating REPL session: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/repl/{session_id}/query")
+async def repl_query(session_id: str, request: dict):
+    """Execute REPL query with code generation
+
+    Request body:
+        - question: Natural language question about the corpus
+        - max_iterations: Max exploration iterations (default 3)
+        - model: Optional model override for this query
+
+    Returns:
+        - answer: Final interpreted answer
+        - trace: List of exploration steps (code, result, interpretation)
+        - corpus_stats: Corpus statistics
+        - model_used: Model that was used
+    """
+    try:
+        question = request.get("question", "").strip()
+        if not question:
+            raise HTTPException(status_code=400, detail="Question is required")
+
+        max_iterations = request.get("max_iterations", 3)
+        model_override = request.get("model")
+
+        db_path = get_db_path()
+        engine = init_db(db_path)
+        db = get_session(engine)
+
+        try:
+            # Verify session exists
+            session = db.query(REPLSession).filter_by(id=session_id).first()
+            if not session:
+                raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+
+            # Execute REPL query
+            repl_engine = REPLEngine(db, ollama_client, prompt_manager)
+            result = repl_engine.query(
+                user_question=question,
+                max_iterations=max_iterations,
+                model_override=model_override
+            )
+
+            # Save to history
+            history_entry = REPLQueryHistory(
+                session_id=session_id,
+                query=question,
+                answer=result["answer"],
+                trace_json=json_lib.dumps(result["trace"], default=str),
+                model_used=result["model_used"]
+            )
+            db.add(history_entry)
+
+            # Update session
+            session.last_query_at = datetime.utcnow()
+            session.query_count += 1
+            session.model_used = result["model_used"]
+
+            db.commit()
+
+            logger.info(f"REPL query completed: {len(result['trace'])} steps, model={result['model_used']}")
+
+            return {
+                "success": True,
+                "answer": result["answer"],
+                "trace": result["trace"],
+                "corpus_stats": result["corpus_stats"],
+                "model_used": result["model_used"],
+                "session_id": session_id
+            }
+
+        finally:
+            db.close()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error executing REPL query: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/repl/{session_id}/history")
+async def get_repl_history(session_id: str):
+    """Get query history for REPL session
+
+    Returns list of previous queries with their traces
+    """
+    try:
+        db_path = get_db_path()
+        engine = init_db(db_path)
+        db = get_session(engine)
+
+        try:
+            session = db.query(REPLSession).filter_by(id=session_id).first()
+            if not session:
+                raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+
+            history = db.query(REPLQueryHistory).filter_by(
+                session_id=session_id
+            ).order_by(REPLQueryHistory.created_at.desc()).all()
+
+            return {
+                "success": True,
+                "session_id": session_id,
+                "query_count": len(history),
+                "history": [
+                    {
+                        "id": h.id,
+                        "query": h.query,
+                        "answer": h.answer,
+                        "trace": json_lib.loads(h.trace_json) if h.trace_json else [],
+                        "model_used": h.model_used,
+                        "created_at": h.created_at.isoformat() if h.created_at else None
+                    }
+                    for h in history
+                ]
+            }
+
+        finally:
+            db.close()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting REPL history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# DATA INSPECTOR ENDPOINTS
+# ============================================================================
+
+@app.get("/inspector/stats")
+async def get_inspector_stats():
+    """Get message statistics for the data inspector
+
+    Returns counts of total, enriched, pending, failed messages
+    and count of messages with Task E extractions.
+    """
+    try:
+        db_path = get_db_path()
+        engine = init_db(db_path)
+        db = get_session(engine)
+
+        try:
+            total = db.query(Message).count()
+            enriched = db.query(Message).filter_by(enrichment_status="completed").count()
+            pending = db.query(Message).filter_by(enrichment_status="pending").count()
+            failed = db.query(Message).filter_by(enrichment_status="failed").count()
+
+            # Count messages with Task E extractions
+            task_e_count = db.query(Extraction).filter_by(task_name="task_e_summary").count()
+
+            return {
+                "success": True,
+                "stats": {
+                    "total": total,
+                    "enriched": enriched,
+                    "pending": pending,
+                    "failed": failed,
+                    "task_e": task_e_count
+                }
+            }
+
+        finally:
+            db.close()
+
+    except Exception as e:
+        logger.error(f"Error getting inspector stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/inspector/messages")
+async def get_inspector_messages(
+    status: str = "all",
+    search: str = "",
+    page: int = 1,
+    page_size: int = 25
+):
+    """Get paginated list of messages for the inspector
+
+    Args:
+        status: Filter by enrichment_status (all, completed, pending, failed)
+        search: Search term for subject or sender
+        page: Page number (1-indexed)
+        page_size: Number of messages per page
+
+    Returns:
+        List of message summaries with pagination info
+    """
+    try:
+        db_path = get_db_path()
+        engine = init_db(db_path)
+        db = get_session(engine)
+
+        try:
+            query = db.query(Message)
+
+            # Filter by status
+            if status != "all":
+                query = query.filter_by(enrichment_status=status)
+
+            # Search filter
+            if search:
+                search_pattern = f"%{search}%"
+                query = query.filter(
+                    (Message.subject.ilike(search_pattern)) |
+                    (Message.sender_email.ilike(search_pattern)) |
+                    (Message.sender_name.ilike(search_pattern))
+                )
+
+            # Get total count before pagination
+            total_count = query.count()
+
+            # Order and paginate
+            offset = (page - 1) * page_size
+            messages = query.order_by(Message.delivery_date.desc()).offset(offset).limit(page_size).all()
+
+            return {
+                "success": True,
+                "messages": [
+                    {
+                        "id": msg.id,
+                        "subject": (msg.subject or "")[:80],
+                        "sender_email": msg.sender_email or "",
+                        "sender_name": msg.sender_name or "",
+                        "date": msg.delivery_date.strftime("%Y-%m-%d") if msg.delivery_date else "",
+                        "status": msg.enrichment_status or "pending"
+                    }
+                    for msg in messages
+                ],
+                "pagination": {
+                    "page": page,
+                    "page_size": page_size,
+                    "total_count": total_count,
+                    "total_pages": (total_count + page_size - 1) // page_size
+                }
+            }
+
+        finally:
+            db.close()
+
+    except Exception as e:
+        logger.error(f"Error getting inspector messages: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/inspector/message/{message_id}")
+async def get_inspector_message_detail(message_id: int):
+    """Get detailed message data including all extractions
+
+    Args:
+        message_id: Database ID of the message
+
+    Returns:
+        Full message data and all extraction results
+    """
+    try:
+        db_path = get_db_path()
+        engine = init_db(db_path)
+        db = get_session(engine)
+
+        try:
+            message = db.query(Message).filter_by(id=message_id).first()
+            if not message:
+                raise HTTPException(status_code=404, detail=f"Message {message_id} not found")
+
+            # Get all extractions for this message
+            extractions = db.query(Extraction).filter_by(message_id=message_id).all()
+
+            extraction_data = {}
+            for ext in extractions:
+                try:
+                    parsed = json_lib.loads(ext.extraction_json) if ext.extraction_json else None
+                    extraction_data[ext.task_name] = {
+                        "data": parsed,
+                        "confidence": ext.confidence,
+                        "prompt_version": ext.prompt_version,
+                        "processing_time_ms": ext.processing_time_ms
+                    }
+                except json_lib.JSONDecodeError:
+                    extraction_data[ext.task_name] = {
+                        "data": None,
+                        "error": "JSON parse error",
+                        "raw": ext.extraction_json[:500] if ext.extraction_json else None
+                    }
+
+            return {
+                "success": True,
+                "message": {
+                    "id": message.id,
+                    "msg_id": message.msg_id,
+                    "subject": message.subject or "",
+                    "sender_email": message.sender_email or "",
+                    "sender_name": message.sender_name or "",
+                    "recipients": message.recipients or "",
+                    "cc": message.cc or "",
+                    "date": message.delivery_date.isoformat() if message.delivery_date else "",
+                    "body_snippet": (message.body_full or message.body_snippet or "")[:2000],
+                    "body_length": len(message.body_full or message.body_snippet or ""),
+                    "message_class": message.message_class or "",
+                    "enrichment_status": message.enrichment_status or "pending",
+                    "is_spurious": message.is_spurious
+                },
+                "extractions": extraction_data
+            }
+
+        finally:
+            db.close()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting message detail: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

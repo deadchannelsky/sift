@@ -250,7 +250,7 @@
                                 style="display: none;">Start Aggregation</button>
                     </div>
 
-                    <!-- RAG Query Card (NEW) -->
+                    <!-- RAG Query Card -->
                     <div class="job-card" id="rag-card">
                         <h4>RAG Query</h4>
                         <div class="status-badge" id="rag-status">Pending</div>
@@ -266,6 +266,40 @@
                                 style="display: none; margin-top: 10px;">Generate Embeddings</button>
                         <button id="open-rag-chat-btn" class="btn btn-success" onclick="goToRAGChat()"
                                 style="display: none; margin-top: 10px;">Start RAG Session →</button>
+                    </div>
+
+                    <!-- REPL Explorer Card (CODE-BASED ANALYSIS) -->
+                    <div class="job-card" id="repl-card" style="border: 2px solid #10b981; background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);">
+                        <h4 style="color: #065f46;">REPL Explorer</h4>
+                        <div class="status-badge" id="repl-status" style="background: #d1fae5; color: #065f46;">New</div>
+                        <p style="font-size: 0.85em; color: #047857; margin-top: 8px;">
+                            <strong>Code-based</strong> corpus exploration
+                        </p>
+                        <p id="repl-info" class="job-info" style="color: #065f46;">
+                            Watch LLM generate Python code to analyze your emails
+                        </p>
+                        <p style="font-size: 0.8em; color: #059669; margin-top: 8px; padding: 8px; background: rgba(16, 185, 129, 0.1); border-radius: 4px;">
+                            <strong>Tech Demo:</strong> Compare model capabilities - see how different models generate exploration code
+                        </p>
+                        <button id="open-repl-btn" class="btn btn-success" onclick="goToREPL()"
+                                style="display: none; margin-top: 10px; font-weight: 600;">Start REPL Explorer →</button>
+                    </div>
+
+                    <!-- Data Inspector Card -->
+                    <div class="job-card" id="inspector-card" style="border: 2px solid #f59e0b; background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);">
+                        <h4 style="color: #92400e;">Data Inspector</h4>
+                        <div class="status-badge" id="inspector-status" style="background: #fde68a; color: #92400e;">Tool</div>
+                        <p style="font-size: 0.85em; color: #b45309; margin-top: 8px;">
+                            <strong>Debug</strong> enrichment quality
+                        </p>
+                        <p id="inspector-info" class="job-info" style="color: #92400e;">
+                            Browse messages and view extraction results side-by-side
+                        </p>
+                        <p style="font-size: 0.8em; color: #d97706; margin-top: 8px; padding: 8px; background: rgba(245, 158, 11, 0.1); border-radius: 4px;">
+                            <strong>Quality Check:</strong> Verify LLM extractions against raw email content
+                        </p>
+                        <button id="open-inspector-btn" class="btn" onclick="goToInspector()"
+                                style="display: none; margin-top: 10px; font-weight: 600; background: #f59e0b; color: white;">Open Inspector →</button>
                     </div>
                 </div>
 
@@ -632,6 +666,238 @@
                 <div class="button-group">
                     <button class="btn btn-secondary" onclick="goToPipeline()">← Back to Pipeline</button>
                     <button class="btn btn-outline-danger" onclick="clearRAGSession()">Clear Chat & Start Fresh</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ========== PAGE 5: REPL EXPLORER ========== -->
+        <section id="repl-page" class="page">
+            <div class="page-content">
+                <h2>REPL Explorer - Code-Based Analysis</h2>
+                <p class="help-text">Explore your email corpus using LLM-generated Python code. Watch the model reason through your data step by step.</p>
+
+                <!-- Corpus Stats Banner -->
+                <div id="repl-corpus-stats" style="background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border: 1px solid #bae6fd; border-radius: 8px; padding: 15px 20px; margin-bottom: 20px; display: flex; gap: 30px; align-items: center;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 1.5em;">📊</span>
+                        <span style="font-weight: 600; color: #0369a1;">Corpus Loaded</span>
+                    </div>
+                    <div style="display: flex; gap: 25px; flex-wrap: wrap;">
+                        <div>
+                            <span style="color: #64748b; font-size: 0.85em;">Messages</span>
+                            <span id="repl-stat-messages" style="display: block; font-weight: 700; color: #0284c7; font-size: 1.2em;">-</span>
+                        </div>
+                        <div>
+                            <span style="color: #64748b; font-size: 0.85em;">Date Range</span>
+                            <span id="repl-stat-dates" style="display: block; font-weight: 700; color: #0284c7; font-size: 1.1em;">-</span>
+                        </div>
+                        <div>
+                            <span style="color: #64748b; font-size: 0.85em;">Senders</span>
+                            <span id="repl-stat-senders" style="display: block; font-weight: 700; color: #0284c7; font-size: 1.2em;">-</span>
+                        </div>
+                        <div>
+                            <span style="color: #64748b; font-size: 0.85em;">Projects</span>
+                            <span id="repl-stat-projects" style="display: block; font-weight: 700; color: #0284c7; font-size: 1.2em;">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Model Selector for REPL -->
+                <div style="background: #fef3c7; border: 1px solid #fcd34d; border-radius: 8px; padding: 15px 20px; margin-bottom: 20px;">
+                    <div style="display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 1.3em;">🧠</span>
+                            <span style="font-weight: 600; color: #92400e;">Code Generation Model</span>
+                        </div>
+                        <select id="repl-model-select" style="padding: 8px 12px; border: 1px solid #f59e0b; border-radius: 4px; font-size: 1em; min-width: 250px; background: white;">
+                            <option value="">Use default model</option>
+                        </select>
+                        <span style="color: #b45309; font-size: 0.9em;">Model capability affects code quality - try different models to compare!</span>
+                    </div>
+                </div>
+
+                <!-- Query Input -->
+                <div style="background: white; border: 2px solid #10b981; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+                    <label style="font-weight: 600; color: #065f46; margin-bottom: 10px; display: block;">
+                        Ask a question about your emails
+                    </label>
+                    <div style="display: flex; gap: 10px; align-items: flex-start;">
+                        <textarea id="repl-query-input"
+                                  placeholder="e.g., How did my engagement with the Platform team change over Q4? / Who were my top collaborators in November? / What projects went quiet in December?"
+                                  style="flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 1em; font-family: inherit; resize: vertical; min-height: 60px;"
+                                  onkeydown="if(event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendREPLQuery(); }"></textarea>
+                        <button class="btn btn-success" onclick="sendREPLQuery()" id="repl-send-btn" style="padding: 12px 24px; font-weight: 600;">
+                            Explore
+                        </button>
+                    </div>
+                    <div id="repl-loading" style="display: none; margin-top: 15px; padding: 15px; background: #f0fdf4; border-radius: 4px;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <div class="spinner" style="width: 20px; height: 20px; border: 3px solid #d1fae5; border-top-color: #10b981; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                            <span style="color: #065f46; font-weight: 500;">Generating and executing code...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Exploration Trace Container -->
+                <div id="repl-trace-container" style="display: none; background: #1e293b; border-radius: 8px; overflow: hidden; margin-bottom: 20px;">
+                    <div style="background: #334155; padding: 12px 20px; display: flex; justify-content: space-between; align-items: center;">
+                        <span style="color: #94a3b8; font-weight: 600; font-size: 0.9em; text-transform: uppercase; letter-spacing: 0.5px;">Exploration Trace</span>
+                        <span id="repl-trace-model" style="color: #67e8f9; font-size: 0.85em;"></span>
+                    </div>
+                    <div id="repl-trace-steps" style="padding: 20px; max-height: 500px; overflow-y: auto;">
+                        <!-- Steps will be populated dynamically -->
+                    </div>
+                </div>
+
+                <!-- Answer Container -->
+                <div id="repl-answer-container" style="display: none; background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%); border: 2px solid #10b981; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
+                        <span style="font-size: 1.5em;">✅</span>
+                        <span style="font-weight: 700; color: #065f46; font-size: 1.1em;">Answer</span>
+                    </div>
+                    <div id="repl-answer-content" style="color: #064e3b; line-height: 1.6; white-space: pre-wrap;">
+                        <!-- Answer will be populated dynamically -->
+                    </div>
+                </div>
+
+                <!-- History Section -->
+                <details id="repl-history-section" style="margin-bottom: 20px; display: none;">
+                    <summary style="cursor: pointer; padding: 15px; background: #f1f5f9; border-radius: 8px; font-weight: 600; color: #475569;">
+                        Previous Explorations in This Session
+                    </summary>
+                    <div id="repl-history-list" style="padding: 15px; background: #f8fafc; border-radius: 0 0 8px 8px; max-height: 300px; overflow-y: auto;">
+                        <!-- History will be populated dynamically -->
+                    </div>
+                </details>
+
+                <!-- Navigation -->
+                <div class="button-group">
+                    <button class="btn btn-secondary" onclick="goToPipeline()">← Back to Pipeline</button>
+                    <button class="btn btn-primary" onclick="goToRAGChat()">Compare with RAG Chat →</button>
+                    <button class="btn btn-outline-danger" onclick="clearREPLSession()">Clear Session</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ========== PAGE 6: DATA INSPECTOR ========== -->
+        <section id="inspector-page" class="page">
+            <div class="page-content">
+                <h2>Data Inspector - Enrichment Quality Review</h2>
+                <p class="help-text">Browse individual messages and their LLM extractions to verify data quality.</p>
+
+                <!-- Filter Controls -->
+                <div style="background: white; border: 1px solid #ddd; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 15px; align-items: end;">
+                        <div>
+                            <label style="font-weight: 600; font-size: 0.9em; color: #374151; display: block; margin-bottom: 5px;">Filter by Status</label>
+                            <select id="inspector-filter-status" onchange="loadInspectorMessages()" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                <option value="all">All Messages</option>
+                                <option value="completed">Enriched (completed)</option>
+                                <option value="pending">Pending</option>
+                                <option value="failed">Failed</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label style="font-weight: 600; font-size: 0.9em; color: #374151; display: block; margin-bottom: 5px;">Search Subject/Sender</label>
+                            <input type="text" id="inspector-search" placeholder="Type to search..."
+                                   onkeyup="debounceInspectorSearch()" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                        </div>
+                        <div>
+                            <label style="font-weight: 600; font-size: 0.9em; color: #374151; display: block; margin-bottom: 5px;">Page Size</label>
+                            <select id="inspector-page-size" onchange="loadInspectorMessages()" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                <option value="10">10 messages</option>
+                                <option value="25" selected>25 messages</option>
+                                <option value="50">50 messages</option>
+                                <option value="100">100 messages</option>
+                            </select>
+                        </div>
+                        <div>
+                            <button class="btn btn-secondary" onclick="loadInspectorMessages()" style="padding: 8px 16px;">
+                                Refresh
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Stats Summary -->
+                <div id="inspector-stats" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 20px;">
+                    <div style="background: #f0f9ff; padding: 15px; border-radius: 8px; text-align: center;">
+                        <p style="margin: 0; color: #64748b; font-size: 0.85em;">Total</p>
+                        <p id="inspector-stat-total" style="margin: 5px 0 0 0; font-size: 1.5em; font-weight: 700; color: #0284c7;">-</p>
+                    </div>
+                    <div style="background: #f0fdf4; padding: 15px; border-radius: 8px; text-align: center;">
+                        <p style="margin: 0; color: #64748b; font-size: 0.85em;">Enriched</p>
+                        <p id="inspector-stat-enriched" style="margin: 5px 0 0 0; font-size: 1.5em; font-weight: 700; color: #16a34a;">-</p>
+                    </div>
+                    <div style="background: #fef3c7; padding: 15px; border-radius: 8px; text-align: center;">
+                        <p style="margin: 0; color: #64748b; font-size: 0.85em;">Pending</p>
+                        <p id="inspector-stat-pending" style="margin: 5px 0 0 0; font-size: 1.5em; font-weight: 700; color: #d97706;">-</p>
+                    </div>
+                    <div style="background: #fef2f2; padding: 15px; border-radius: 8px; text-align: center;">
+                        <p style="margin: 0; color: #64748b; font-size: 0.85em;">Failed</p>
+                        <p id="inspector-stat-failed" style="margin: 5px 0 0 0; font-size: 1.5em; font-weight: 700; color: #dc2626;">-</p>
+                    </div>
+                    <div style="background: #faf5ff; padding: 15px; border-radius: 8px; text-align: center;">
+                        <p style="margin: 0; color: #64748b; font-size: 0.85em;">Task E</p>
+                        <p id="inspector-stat-task-e" style="margin: 5px 0 0 0; font-size: 1.5em; font-weight: 700; color: #7c3aed;">-</p>
+                    </div>
+                </div>
+
+                <!-- Message List -->
+                <div id="inspector-message-list" style="background: white; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; margin-bottom: 20px;">
+                    <div style="background: #f1f5f9; padding: 10px 15px; display: grid; grid-template-columns: 50px 200px 1fr 120px 100px; gap: 10px; font-weight: 600; color: #475569; font-size: 0.85em;">
+                        <span>ID</span>
+                        <span>Sender</span>
+                        <span>Subject</span>
+                        <span>Date</span>
+                        <span>Status</span>
+                    </div>
+                    <div id="inspector-messages" style="max-height: 400px; overflow-y: auto;">
+                        <div style="padding: 30px; text-align: center; color: #9ca3af;">Loading messages...</div>
+                    </div>
+                </div>
+
+                <!-- Pagination -->
+                <div id="inspector-pagination" style="display: flex; justify-content: center; gap: 10px; margin-bottom: 20px;">
+                    <button id="inspector-prev" class="btn btn-secondary btn-small" onclick="inspectorPrevPage()" disabled>← Previous</button>
+                    <span id="inspector-page-info" style="padding: 8px 15px; color: #64748b;">Page 1</span>
+                    <button id="inspector-next" class="btn btn-secondary btn-small" onclick="inspectorNextPage()">Next →</button>
+                </div>
+
+                <!-- Selected Message Detail -->
+                <div id="inspector-detail" style="display: none; background: white; border: 2px solid #f59e0b; border-radius: 8px; overflow: hidden; margin-bottom: 20px;">
+                    <div style="background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); padding: 15px 20px; border-bottom: 2px solid #f59e0b;">
+                        <h3 style="margin: 0; color: #92400e;">Message Details</h3>
+                    </div>
+
+                    <!-- Two-column layout -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0;">
+                        <!-- Left: Raw Message -->
+                        <div style="padding: 20px; border-right: 1px solid #e5e7eb;">
+                            <h4 style="margin: 0 0 15px 0; color: #374151; display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 1.2em;">📧</span> Raw Email
+                            </h4>
+                            <div id="inspector-raw-message" style="font-size: 0.9em; line-height: 1.6;">
+                                <!-- Raw message will be populated here -->
+                            </div>
+                        </div>
+
+                        <!-- Right: Extractions -->
+                        <div style="padding: 20px; background: #fafafa;">
+                            <h4 style="margin: 0 0 15px 0; color: #374151; display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 1.2em;">🔍</span> LLM Extractions
+                            </h4>
+                            <div id="inspector-extractions" style="font-size: 0.9em;">
+                                <!-- Extractions will be populated here -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Navigation -->
+                <div class="button-group">
+                    <button class="btn btn-secondary" onclick="goToPipeline()">← Back to Pipeline</button>
+                    <button class="btn btn-primary" onclick="goToResults()">View Results →</button>
                 </div>
             </div>
         </section>

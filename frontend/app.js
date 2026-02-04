@@ -411,6 +411,8 @@ function updateJobCard(jobType, status) {
         if (jobType === 'parse') {
             document.getElementById('start-enrich-btn').style.display = 'inline-block';
             document.getElementById('enrich-config').style.display = 'block';
+            // Show Data Inspector button (available after parsing)
+            document.getElementById('open-inspector-btn').style.display = 'inline-block';
         } else if (jobType === 'enrich') {
             document.getElementById('start-aggregate-btn').style.display = 'inline-block';
             // Also show RAG embedding generation button
@@ -418,6 +420,12 @@ function updateJobCard(jobType, status) {
             document.getElementById('rag-status').className = 'status-badge pending';
             document.getElementById('rag-status').textContent = 'Ready';
             document.getElementById('rag-info').textContent = 'Click "Generate Embeddings" to enable semantic search';
+            // Show REPL Explorer button (code-based exploration)
+            document.getElementById('open-repl-btn').style.display = 'inline-block';
+            document.getElementById('repl-status').className = 'status-badge';
+            document.getElementById('repl-status').style.background = '#d1fae5';
+            document.getElementById('repl-status').style.color = '#065f46';
+            document.getElementById('repl-status').textContent = 'Ready';
         }
     }
 
@@ -868,18 +876,25 @@ function resumePipeline(stage) {
         goToPipeline();
         startEnrichment();
     } else if (stage === 'aggregate') {
-        // Start aggregation directly - but first show RAG button since enrichment is complete
+        // Start aggregation directly - but first show RAG and REPL buttons since enrichment is complete
         console.log('Resuming at aggregation stage...');
         goToPipeline();
 
-        // Show both aggregate and RAG buttons (enrichment already done)
+        // Show aggregate, RAG, and REPL buttons (enrichment already done)
         document.getElementById('start-aggregate-btn').style.display = 'inline-block';
         document.getElementById('start-rag-embed-btn').style.display = 'inline-block';
         document.getElementById('rag-status').className = 'status-badge pending';
         document.getElementById('rag-status').textContent = 'Ready';
         document.getElementById('rag-info').textContent = 'Click "Generate Embeddings" to enable semantic search';
 
-        // User must manually choose between "Start Aggregation" or "Generate Embeddings"
+        // Show REPL button (code-based exploration)
+        document.getElementById('open-repl-btn').style.display = 'inline-block';
+        document.getElementById('repl-status').className = 'status-badge';
+        document.getElementById('repl-status').style.background = '#d1fae5';
+        document.getElementById('repl-status').style.color = '#065f46';
+        document.getElementById('repl-status').textContent = 'Ready';
+
+        // User must manually choose between "Start Aggregation", "Generate Embeddings", or "REPL"
     }
 }
 
@@ -1631,5 +1646,419 @@ async function expandCitation(messageId) {
 function clearRAGSession() {
     if (confirm('Clear chat history and start a fresh session?')) {
         goToRAGChat();
+    }
+}
+
+// ============================================================================
+// REPL EXPLORER FUNCTIONS
+// ============================================================================
+
+let replSessionId = null;
+
+async function goToREPL() {
+    showPage('repl-page');
+
+    // Load models for the model selector
+    await loadREPLModels();
+
+    // Create session and load corpus stats
+    try {
+        const response = await apiCall('POST', '/repl/session');
+        if (response.success) {
+            replSessionId = response.session_id;
+
+            // Update corpus stats display
+            const stats = response.corpus_stats;
+            document.getElementById('repl-stat-messages').textContent = stats.total_messages.toLocaleString();
+            document.getElementById('repl-stat-dates').textContent = stats.date_range || 'N/A';
+            document.getElementById('repl-stat-senders').textContent = stats.unique_senders.toLocaleString();
+            document.getElementById('repl-stat-projects').textContent = stats.unique_projects.toLocaleString();
+
+            console.log('✅ REPL session created:', replSessionId);
+        }
+    } catch (error) {
+        console.error('❌ Error creating REPL session:', error);
+        alert('Failed to create REPL session: ' + error.message);
+    }
+}
+
+async function loadREPLModels() {
+    try {
+        console.log('Loading models for REPL selector...');
+        const response = await apiCall('GET', '/models');
+        console.log('Models response:', response);
+
+        const models = response.available_models || [];
+        const select = document.getElementById('repl-model-select');
+
+        if (!select) {
+            console.error('REPL model select element not found!');
+            return;
+        }
+
+        // Keep the default option, show current model
+        const currentModel = response.current_model || 'default';
+        select.innerHTML = `<option value="">Use current (${currentModel})</option>`;
+
+        // Add all models
+        if (models.length === 0) {
+            console.warn('No models in available_models array');
+        }
+
+        models.forEach(model => {
+            const opt = document.createElement('option');
+            opt.value = model.name;
+            const sizeStr = model.size_gb ? ` (${model.size_gb.toFixed(1)}GB)` : '';
+            opt.textContent = `${model.name}${sizeStr}`;
+            select.appendChild(opt);
+        });
+
+        console.log(`✅ Loaded ${models.length} models for REPL selector`);
+    } catch (error) {
+        console.error('❌ Error loading REPL models:', error);
+    }
+}
+
+async function sendREPLQuery() {
+    const input = document.getElementById('repl-query-input');
+    const question = input.value.trim();
+
+    if (!question) {
+        alert('Please enter a question');
+        return;
+    }
+
+    if (!replSessionId) {
+        alert('No REPL session active. Please refresh the page.');
+        return;
+    }
+
+    // Get selected model
+    const modelSelect = document.getElementById('repl-model-select');
+    const model = modelSelect.value || null;
+
+    // Show loading
+    document.getElementById('repl-loading').style.display = 'block';
+    document.getElementById('repl-send-btn').disabled = true;
+    document.getElementById('repl-trace-container').style.display = 'none';
+    document.getElementById('repl-answer-container').style.display = 'none';
+
+    try {
+        const response = await apiCall('POST', `/repl/${replSessionId}/query`, {
+            question: question,
+            max_iterations: 3,
+            model: model
+        });
+
+        if (response.success) {
+            // Display the trace
+            displayREPLTrace(response.trace, response.model_used);
+
+            // Display the answer
+            displayREPLAnswer(response.answer);
+
+            // Show history section
+            document.getElementById('repl-history-section').style.display = 'block';
+
+            // Clear input
+            input.value = '';
+        }
+    } catch (error) {
+        console.error('❌ REPL query error:', error);
+        alert('REPL query failed: ' + error.message);
+    } finally {
+        document.getElementById('repl-loading').style.display = 'none';
+        document.getElementById('repl-send-btn').disabled = false;
+    }
+}
+
+function displayREPLTrace(trace, modelUsed) {
+    const container = document.getElementById('repl-trace-container');
+    const stepsDiv = document.getElementById('repl-trace-steps');
+    const modelSpan = document.getElementById('repl-trace-model');
+
+    container.style.display = 'block';
+    modelSpan.textContent = `Model: ${modelUsed}`;
+
+    stepsDiv.innerHTML = '';
+
+    trace.forEach((step, index) => {
+        const stepDiv = document.createElement('div');
+        stepDiv.className = 'repl-step';
+
+        const hasError = !!step.error;
+        const statusClass = hasError ? 'error' : 'success';
+        const statusText = hasError ? 'Error' : 'Executed';
+
+        // Syntax highlight the code (simple version)
+        const highlightedCode = highlightPython(step.code);
+
+        // Format the result
+        let resultContent;
+        if (hasError) {
+            resultContent = `<div class="repl-error-content">${escapeHtml(step.error)}</div>`;
+        } else {
+            const resultStr = typeof step.result === 'object'
+                ? JSON.stringify(step.result, null, 2)
+                : String(step.result);
+            resultContent = `<div class="repl-result-content">${escapeHtml(resultStr)}</div>`;
+        }
+
+        stepDiv.innerHTML = `
+            <div class="repl-step-header">
+                <span class="repl-step-number">Step ${step.step}</span>
+                <span class="repl-step-status ${statusClass}">${statusText}</span>
+            </div>
+            <div class="repl-code-block">${highlightedCode}</div>
+            <div class="repl-result-block">
+                <div class="repl-result-label">Result</div>
+                ${resultContent}
+            </div>
+        `;
+
+        stepsDiv.appendChild(stepDiv);
+    });
+}
+
+function highlightPython(code) {
+    if (!code) return '';
+
+    // Just escape HTML - syntax highlighting was causing issues
+    // (replacing 'class' inside span tags, etc.)
+    return escapeHtml(code);
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function displayREPLAnswer(answer) {
+    const container = document.getElementById('repl-answer-container');
+    const content = document.getElementById('repl-answer-content');
+
+    container.style.display = 'block';
+    content.textContent = answer;
+}
+
+function clearREPLSession() {
+    if (confirm('Clear session and start fresh?')) {
+        replSessionId = null;
+        document.getElementById('repl-trace-container').style.display = 'none';
+        document.getElementById('repl-answer-container').style.display = 'none';
+        document.getElementById('repl-history-section').style.display = 'none';
+        document.getElementById('repl-query-input').value = '';
+
+        // Create new session
+        goToREPL();
+    }
+}
+
+// Update pipeline status to show REPL button when appropriate
+function updateREPLButton() {
+    // Show REPL button after enrichment is complete
+    const enrichStatus = document.getElementById('enrich-status');
+    const replBtn = document.getElementById('open-repl-btn');
+
+    if (enrichStatus && replBtn) {
+        const statusText = enrichStatus.textContent.toLowerCase();
+        if (statusText === 'completed' || statusText === 'complete') {
+            replBtn.style.display = 'inline-block';
+        }
+    }
+}
+
+// ============================================================================
+// DATA INSPECTOR FUNCTIONS
+// ============================================================================
+
+let inspectorCurrentPage = 1;
+let inspectorSearchTimeout = null;
+
+async function goToInspector() {
+    showPage('inspector-page');
+    await loadInspectorStats();
+    await loadInspectorMessages();
+}
+
+async function loadInspectorStats() {
+    try {
+        const response = await fetch(`${API_BASE}/inspector/stats`);
+        const data = await response.json();
+
+        if (data.success) {
+            document.getElementById('inspector-stat-total').textContent = data.stats.total;
+            document.getElementById('inspector-stat-enriched').textContent = data.stats.enriched;
+            document.getElementById('inspector-stat-pending').textContent = data.stats.pending;
+            document.getElementById('inspector-stat-failed').textContent = data.stats.failed;
+            document.getElementById('inspector-stat-task-e').textContent = data.stats.task_e;
+        }
+    } catch (error) {
+        console.error('Error loading inspector stats:', error);
+    }
+}
+
+async function loadInspectorMessages() {
+    const status = document.getElementById('inspector-filter-status').value;
+    const search = document.getElementById('inspector-search').value;
+    const pageSize = parseInt(document.getElementById('inspector-page-size').value);
+
+    const messagesContainer = document.getElementById('inspector-messages');
+    messagesContainer.innerHTML = '<div style="padding: 30px; text-align: center; color: #9ca3af;">Loading messages...</div>';
+
+    try {
+        const params = new URLSearchParams({
+            status: status,
+            search: search,
+            page: inspectorCurrentPage,
+            page_size: pageSize
+        });
+
+        const response = await fetch(`${API_BASE}/inspector/messages?${params}`);
+        const data = await response.json();
+
+        if (data.success) {
+            if (data.messages.length === 0) {
+                messagesContainer.innerHTML = '<div style="padding: 30px; text-align: center; color: #9ca3af;">No messages found</div>';
+            } else {
+                messagesContainer.innerHTML = data.messages.map(msg => `
+                    <div onclick="selectInspectorMessage(${msg.id})" style="padding: 10px 15px; display: grid; grid-template-columns: 50px 200px 1fr 120px 100px; gap: 10px; border-bottom: 1px solid #e5e7eb; cursor: pointer; font-size: 0.9em; transition: background 0.15s;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='white'">
+                        <span style="color: #64748b;">${msg.id}</span>
+                        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(msg.sender_email)}">${escapeHtml(msg.sender_email || msg.sender_name || '-')}</span>
+                        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(msg.subject)}">${escapeHtml(msg.subject || '(no subject)')}</span>
+                        <span style="color: #64748b;">${msg.date}</span>
+                        <span class="status-badge ${msg.status === 'completed' ? 'success' : msg.status === 'failed' ? 'error' : 'pending'}" style="font-size: 0.8em; padding: 2px 8px;">${msg.status}</span>
+                    </div>
+                `).join('');
+            }
+
+            // Update pagination
+            const pagination = data.pagination;
+            document.getElementById('inspector-page-info').textContent = `Page ${pagination.page} of ${pagination.total_pages}`;
+            document.getElementById('inspector-prev').disabled = pagination.page <= 1;
+            document.getElementById('inspector-next').disabled = pagination.page >= pagination.total_pages;
+        }
+    } catch (error) {
+        console.error('Error loading inspector messages:', error);
+        messagesContainer.innerHTML = '<div style="padding: 30px; text-align: center; color: #ef4444;">Error loading messages</div>';
+    }
+}
+
+function debounceInspectorSearch() {
+    clearTimeout(inspectorSearchTimeout);
+    inspectorSearchTimeout = setTimeout(() => {
+        inspectorCurrentPage = 1;
+        loadInspectorMessages();
+    }, 300);
+}
+
+function inspectorPrevPage() {
+    if (inspectorCurrentPage > 1) {
+        inspectorCurrentPage--;
+        loadInspectorMessages();
+    }
+}
+
+function inspectorNextPage() {
+    inspectorCurrentPage++;
+    loadInspectorMessages();
+}
+
+async function selectInspectorMessage(messageId) {
+    try {
+        const response = await fetch(`${API_BASE}/inspector/message/${messageId}`);
+        const data = await response.json();
+
+        if (data.success) {
+            displayInspectorDetail(data.message, data.extractions);
+        }
+    } catch (error) {
+        console.error('Error loading message detail:', error);
+    }
+}
+
+function displayInspectorDetail(message, extractions) {
+    const detailContainer = document.getElementById('inspector-detail');
+    detailContainer.style.display = 'block';
+
+    // Scroll to detail
+    detailContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    // Display raw message
+    const rawContainer = document.getElementById('inspector-raw-message');
+    rawContainer.innerHTML = `
+        <div style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #e5e7eb;">
+            <p><strong>Subject:</strong> ${escapeHtml(message.subject)}</p>
+            <p><strong>From:</strong> ${escapeHtml(message.sender_name)} &lt;${escapeHtml(message.sender_email)}&gt;</p>
+            <p><strong>To:</strong> ${escapeHtml(message.recipients)}</p>
+            ${message.cc ? `<p><strong>CC:</strong> ${escapeHtml(message.cc)}</p>` : ''}
+            <p><strong>Date:</strong> ${message.date}</p>
+            <p><strong>Status:</strong> <span class="status-badge ${message.enrichment_status === 'completed' ? 'success' : message.enrichment_status === 'failed' ? 'error' : 'pending'}">${message.enrichment_status}</span></p>
+            ${message.is_spurious ? '<p style="color: #dc2626;"><strong>Flagged as spurious</strong></p>' : ''}
+        </div>
+        <div style="background: #f9fafb; padding: 12px; border-radius: 4px; max-height: 400px; overflow-y: auto;">
+            <p style="color: #64748b; font-size: 0.85em; margin-bottom: 8px;">Body (${message.body_length} chars):</p>
+            <pre style="white-space: pre-wrap; word-wrap: break-word; font-family: inherit; margin: 0;">${escapeHtml(message.body_snippet)}</pre>
+        </div>
+    `;
+
+    // Display extractions
+    const extractionsContainer = document.getElementById('inspector-extractions');
+
+    const taskOrder = [
+        'task_e_summary', 'task_e_sentiment',
+        'task_a_projects', 'task_b_stakeholders', 'task_c_importance', 'task_d_meetings'
+    ];
+
+    const taskLabels = {
+        'task_a_projects': '📁 Projects (Task A)',
+        'task_b_stakeholders': '👥 Stakeholders (Task B)',
+        'task_c_importance': '⚡ Importance (Task C)',
+        'task_d_meetings': '📅 Meetings (Task D)',
+        'task_e_summary': '📝 Summary (Task E1)',
+        'task_e_sentiment': '💬 Sentiment (Task E2)'
+    };
+
+    let extractionHtml = '';
+
+    for (const taskName of taskOrder) {
+        const ext = extractions[taskName];
+        if (!ext) continue;
+
+        const label = taskLabels[taskName] || taskName;
+        const isTaskE = taskName.startsWith('task_e');
+
+        extractionHtml += `
+            <div style="margin-bottom: 20px; padding: 12px; background: ${isTaskE ? '#faf5ff' : 'white'}; border: 1px solid ${isTaskE ? '#e9d5ff' : '#e5e7eb'}; border-radius: 6px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <strong style="color: ${isTaskE ? '#7c3aed' : '#374151'};">${label}</strong>
+                    ${ext.confidence ? `<span style="font-size: 0.85em; color: #64748b;">Confidence: ${ext.confidence}</span>` : ''}
+                </div>
+                ${ext.error ? `<p style="color: #dc2626;">${ext.error}</p>` : ''}
+                ${ext.data ? `<pre style="white-space: pre-wrap; word-wrap: break-word; font-size: 0.85em; background: #f9fafb; padding: 10px; border-radius: 4px; margin: 0; max-height: 200px; overflow-y: auto;">${escapeHtml(JSON.stringify(ext.data, null, 2))}</pre>` : '<p style="color: #9ca3af;">No data</p>'}
+                ${ext.processing_time_ms ? `<p style="font-size: 0.8em; color: #9ca3af; margin-top: 8px;">Processing time: ${ext.processing_time_ms}ms</p>` : ''}
+            </div>
+        `;
+    }
+
+    if (!extractionHtml) {
+        extractionHtml = '<p style="color: #9ca3af; text-align: center; padding: 20px;">No extractions found for this message</p>';
+    }
+
+    extractionsContainer.innerHTML = extractionHtml;
+}
+
+// Update pipeline status to show Inspector button when appropriate
+function updateInspectorButton() {
+    // Show Inspector button after parsing is complete
+    const parseStatus = document.getElementById('parse-status');
+    const inspectorBtn = document.getElementById('open-inspector-btn');
+
+    if (parseStatus && inspectorBtn) {
+        const statusText = parseStatus.textContent.toLowerCase();
+        if (statusText === 'completed' || statusText === 'complete') {
+            inspectorBtn.style.display = 'inline-block';
+        }
     }
 }

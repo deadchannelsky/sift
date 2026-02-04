@@ -1023,3 +1023,128 @@ body {
     z-index: 1000;
     padding: 20px;
 }
+
+/* ============================================================================
+   REPL EXPLORER STYLES
+   ============================================================================ */
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.repl-step {
+    margin-bottom: 20px;
+    border: 1px solid #475569;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.repl-step-header {
+    background: #334155;
+    padding: 10px 15px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.repl-step-number {
+    color: #67e8f9;
+    font-weight: 600;
+    font-size: 0.9em;
+}
+
+.repl-step-status {
+    font-size: 0.85em;
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+
+.repl-step-status.success {
+    background: #065f46;
+    color: #6ee7b7;
+}
+
+.repl-step-status.error {
+    background: #7f1d1d;
+    color: #fca5a5;
+}
+
+.repl-code-block {
+    background: #0f172a;
+    padding: 15px;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 0.9em;
+    color: #e2e8f0;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.repl-code-block .keyword {
+    color: #c084fc;
+}
+
+.repl-code-block .string {
+    color: #86efac;
+}
+
+.repl-code-block .function {
+    color: #67e8f9;
+}
+
+.repl-code-block .comment {
+    color: #64748b;
+}
+
+.repl-result-block {
+    background: #1e293b;
+    padding: 15px;
+    border-top: 1px solid #475569;
+}
+
+.repl-result-label {
+    color: #94a3b8;
+    font-size: 0.8em;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+}
+
+.repl-result-content {
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 0.85em;
+    color: #a5f3fc;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.repl-error-content {
+    color: #fca5a5;
+}
+
+.repl-history-item {
+    padding: 12px;
+    border-bottom: 1px solid #e2e8f0;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.repl-history-item:hover {
+    background: #f1f5f9;
+}
+
+.repl-history-item:last-child {
+    border-bottom: none;
+}
+
+.repl-history-query {
+    font-weight: 600;
+    color: #1e293b;
+    margin-bottom: 4px;
+}
+
+.repl-history-meta {
+    font-size: 0.85em;
+    color: #64748b;
+}
