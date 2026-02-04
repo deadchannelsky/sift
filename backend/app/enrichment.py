@@ -217,13 +217,25 @@ class EnrichmentEngine:
                 # Valid - keep it
                 filtered_extractions.append(stakeholder)
             else:
-                # Hallucinated - log and reject
-                rejected_count += 1
-                logger.warning(
-                    f"REJECTED hallucinated stakeholder: {stakeholder.get('stakeholder')} "
-                    f"({extracted_email}) - not in message recipients. "
-                    f"Valid emails: {valid_emails}"
-                )
+                # Fallback: Check if LLM put email in wrong field (stakeholder field)
+                stakeholder_value = stakeholder.get("stakeholder", "").lower().strip()
+                if stakeholder_value in valid_emails:
+                    # Recover from schema violation - fix the fields
+                    stakeholder["email"] = stakeholder_value
+                    stakeholder["stakeholder"] = ""  # Clear name field (unknown)
+                    filtered_extractions.append(stakeholder)
+                    logger.info(
+                        f"RECOVERED stakeholder with schema violation: {stakeholder_value} "
+                        f"(email was in 'stakeholder' field instead of 'email' field)"
+                    )
+                else:
+                    # Truly hallucinated - log and reject
+                    rejected_count += 1
+                    logger.warning(
+                        f"REJECTED hallucinated stakeholder: {stakeholder.get('stakeholder')} "
+                        f"({extracted_email}) - not in message recipients. "
+                        f"Valid emails: {valid_emails}"
+                    )
 
         # Update extraction result
         extraction_result.parsed_json["extractions"] = filtered_extractions
