@@ -1,0 +1,26 @@
+{
+  "prompt_id": "task_e_summary_v1",
+  "version": "1.0.0",
+  "task": "summary_classification",
+  "description": "Generates concise summary, classifies email type, extracts key topics, and identifies action items. First pass of two-prompt enrichment.",
+  "model_params": {
+    "temperature": 0.2,
+    "num_predict": 600,
+    "stop_sequences": []
+  },
+  "context_limit": {
+    "max_body_chars": 28000,
+    "truncation_strategy": "smart_middle",
+    "truncation_note": "If body exceeds limit, keep first 14000 chars + last 14000 chars with [... truncated ...] marker"
+  },
+  "prompt_template": "You are analyzing a workplace email to extract key information.\n\n---\n\nEMAIL TO ANALYZE:\nSubject: {subject}\nFrom: {sender_name} <{sender_email}>\nTo: {recipients}\nCC: {cc}\nDate: {delivery_date}\n\nBody:\n{body}\n\n---\n\nTASK: Analyze this email and extract:\n1. A concise summary (max 250 characters) capturing the core message\n2. The email type/purpose\n3. Key topics or themes mentioned\n4. Whether action is required from the recipient\n\nRESPOND ONLY WITH VALID JSON (no preamble, no markdown backticks):\n\n{\n  \"summary\": \"Concise 1-2 sentence summary of the email's main point (max 250 chars)\",\n  \"email_type\": \"request|update|decision|question|fyi|meeting|escalation|approval|handoff|social\",\n  \"key_topics\": [\"topic1\", \"topic2\", \"topic3\"],\n  \"action_required\": true,\n  \"action_description\": \"Brief description of what action is needed, or null if none\",\n  \"urgency\": \"high|medium|low|none\"\n}\n\nEMAIL TYPE DEFINITIONS:\n- request: Asking recipient to do something\n- update: Status report or progress information\n- decision: Communicating or requesting a decision\n- question: Seeking information or clarification\n- fyi: Information sharing, no action needed\n- meeting: Meeting invite, agenda, or follow-up\n- escalation: Raising issue to higher level\n- approval: Seeking or granting approval\n- handoff: Transferring responsibility\n- social: Non-work or relationship building\n\nGUIDELINES:\n- Summary should be meaningful standalone, not just \"Email about X\"\n- Extract 1-5 key topics (concrete nouns: projects, systems, people, concepts)\n- action_required=true only if recipient specifically needs to do something\n- If email is truncated, base analysis on available content",
+  "example_output": {
+    "summary": "Platform team needs API rate limits increased before Q4 launch. Current 1000 req/min causing timeout issues during load testing.",
+    "email_type": "request",
+    "key_topics": ["Platform API", "rate limits", "Q4 launch", "load testing"],
+    "action_required": true,
+    "action_description": "Review and approve rate limit increase from 1000 to 5000 req/min",
+    "urgency": "high"
+  },
+  "tags": ["enrichment", "task_e", "summary", "classification", "v1"]
+}

@@ -86,6 +86,17 @@ class REPLEngine:
             importance_tier = None
             is_meeting = False
 
+            # Task E fields (populated if task_e extractions exist)
+            summary = None
+            email_type = None
+            key_topics = []
+            action_required = False
+            urgency = None
+            tone = None
+            sentiment_score = None
+            sentiment_label = None
+            relationship_signals = {}
+
             for ext in extractions:
                 try:
                     data = json.loads(ext.extraction_json)
@@ -115,6 +126,21 @@ class REPLEngine:
                     elif ext.task_name == "task_d_meetings":
                         is_meeting = data.get("is_meeting_related", False)
 
+                    # Task E1: Summary & Classification
+                    elif ext.task_name == "task_e_summary":
+                        summary = data.get("summary")
+                        email_type = data.get("email_type")
+                        key_topics = data.get("key_topics", [])
+                        action_required = data.get("action_required", False)
+                        urgency = data.get("urgency")
+
+                    # Task E2: Sentiment & Relationship
+                    elif ext.task_name == "task_e_sentiment":
+                        tone = data.get("tone")
+                        sentiment_score = data.get("sentiment_score")
+                        sentiment_label = data.get("sentiment_label")
+                        relationship_signals = data.get("relationship_signals", {})
+
                 except json.JSONDecodeError:
                     continue
 
@@ -131,10 +157,23 @@ class REPLEngine:
                 "month": msg.delivery_date.strftime("%Y-%m") if msg.delivery_date else "",
                 "body": msg.body_full or msg.body_snippet or "",
                 "body_snippet": (msg.body_full or msg.body_snippet or "")[:500],
+                # Task A-D fields
                 "projects": projects,
                 "stakeholders": stakeholders,
                 "importance_tier": importance_tier,
                 "is_meeting": is_meeting,
+                # Task E1 fields (summary & classification)
+                "summary": summary,
+                "email_type": email_type,
+                "key_topics": key_topics,
+                "action_required": action_required,
+                "urgency": urgency,
+                # Task E2 fields (sentiment & relationship)
+                "tone": tone,
+                "sentiment_score": sentiment_score,
+                "sentiment_label": sentiment_label,
+                "relationship_signals": relationship_signals,
+                # Raw data for advanced queries
                 "raw_extractions": extraction_data
             }
 
@@ -249,6 +288,42 @@ class REPLEngine:
             """Filter messages by importance tier (Critical, Execution, Coordination, FYI, Noise)"""
             return [m for m in messages if m.get("importance_tier", "").lower() == tier.lower()]
 
+        def filter_by_email_type(messages: List[Dict], email_type: str) -> List[Dict]:
+            """Filter messages by email type (request, update, decision, question, fyi, meeting, escalation, approval, handoff, social)"""
+            return [m for m in messages if m.get("email_type", "").lower() == email_type.lower()]
+
+        def filter_by_tone(messages: List[Dict], tone: str) -> List[Dict]:
+            """Filter messages by tone (formal, casual, urgent, friendly, terse, diplomatic, frustrated, enthusiastic, neutral)"""
+            return [m for m in messages if m.get("tone", "").lower() == tone.lower()]
+
+        def filter_by_sentiment(messages: List[Dict], label: str) -> List[Dict]:
+            """Filter messages by sentiment label (positive, neutral, negative, mixed)"""
+            return [m for m in messages if m.get("sentiment_label", "").lower() == label.lower()]
+
+        def filter_by_sentiment_range(messages: List[Dict], min_score: float, max_score: float) -> List[Dict]:
+            """Filter messages by sentiment score range (-1.0 to 1.0)"""
+            return [
+                m for m in messages
+                if m.get("sentiment_score") is not None
+                and min_score <= m["sentiment_score"] <= max_score
+            ]
+
+        def filter_by_action_required(messages: List[Dict], required: bool = True) -> List[Dict]:
+            """Filter messages that require action (or don't if required=False)"""
+            return [m for m in messages if m.get("action_required") == required]
+
+        def filter_by_urgency(messages: List[Dict], urgency: str) -> List[Dict]:
+            """Filter messages by urgency level (high, medium, low, none)"""
+            return [m for m in messages if m.get("urgency", "").lower() == urgency.lower()]
+
+        def filter_by_topic(messages: List[Dict], topic_pattern: str) -> List[Dict]:
+            """Filter messages mentioning topic (case-insensitive partial match in key_topics)"""
+            pattern = topic_pattern.lower()
+            return [
+                m for m in messages
+                if any(pattern in t.lower() for t in m.get("key_topics", []))
+            ]
+
         def get_senders(messages: List[Dict]) -> List[str]:
             """Get unique sender emails from messages"""
             return list(set(m.get("sender_email", "") for m in messages if m.get("sender_email")))
@@ -295,21 +370,104 @@ class REPLEngine:
             """Get summaries of multiple messages"""
             return [summarize_message(m) for m in messages[:limit]]
 
+        # Task E aggregation helpers
+        def count_by_email_type(messages: List[Dict]) -> Dict[str, int]:
+            """Count messages per email type"""
+            result = defaultdict(int)
+            for m in messages:
+                email_type = m.get("email_type") or "unknown"
+                result[email_type] += 1
+            return dict(sorted(result.items(), key=lambda x: -x[1]))
+
+        def count_by_tone(messages: List[Dict]) -> Dict[str, int]:
+            """Count messages per tone"""
+            result = defaultdict(int)
+            for m in messages:
+                tone = m.get("tone") or "unknown"
+                result[tone] += 1
+            return dict(sorted(result.items(), key=lambda x: -x[1]))
+
+        def count_by_sentiment(messages: List[Dict]) -> Dict[str, int]:
+            """Count messages per sentiment label"""
+            result = defaultdict(int)
+            for m in messages:
+                label = m.get("sentiment_label") or "unknown"
+                result[label] += 1
+            return dict(sorted(result.items(), key=lambda x: -x[1]))
+
+        def avg_sentiment(messages: List[Dict]) -> float:
+            """Calculate average sentiment score across messages"""
+            scores = [m.get("sentiment_score") for m in messages if m.get("sentiment_score") is not None]
+            return sum(scores) / len(scores) if scores else 0.0
+
+        def get_action_items(messages: List[Dict], limit: int = 10) -> List[Dict]:
+            """Get messages that require action, sorted by urgency"""
+            urgency_order = {"high": 0, "medium": 1, "low": 2, "none": 3}
+            action_msgs = [m for m in messages if m.get("action_required")]
+            sorted_msgs = sorted(action_msgs, key=lambda x: urgency_order.get(x.get("urgency", "none"), 3))
+            return [
+                {
+                    "id": m.get("id"),
+                    "date": m.get("date", "")[:10],
+                    "subject": m.get("subject", "")[:60],
+                    "urgency": m.get("urgency"),
+                    "summary": m.get("summary", "")[:100]
+                }
+                for m in sorted_msgs[:limit]
+            ]
+
+        def get_topics(messages: List[Dict]) -> List[str]:
+            """Get unique topics mentioned across messages"""
+            topics = set()
+            for m in messages:
+                for t in m.get("key_topics", []):
+                    topics.add(t)
+            return sorted(list(topics))
+
+        def count_by_topic(messages: List[Dict]) -> Dict[str, int]:
+            """Count messages per topic"""
+            result = defaultdict(int)
+            for m in messages:
+                for t in m.get("key_topics", []):
+                    result[t] += 1
+            return dict(sorted(result.items(), key=lambda x: -x[1]))
+
         return {
+            # Grouping
             "group_by_month": group_by_month,
             "group_by_sender": group_by_sender,
             "group_by_project": group_by_project,
+            # Filtering - basic
             "filter_by_date_range": filter_by_date_range,
             "filter_by_sender": filter_by_sender,
             "filter_by_project": filter_by_project,
             "filter_by_subject": filter_by_subject,
             "filter_by_importance": filter_by_importance,
+            # Filtering - Task E
+            "filter_by_email_type": filter_by_email_type,
+            "filter_by_tone": filter_by_tone,
+            "filter_by_sentiment": filter_by_sentiment,
+            "filter_by_sentiment_range": filter_by_sentiment_range,
+            "filter_by_action_required": filter_by_action_required,
+            "filter_by_urgency": filter_by_urgency,
+            "filter_by_topic": filter_by_topic,
+            # Getters
             "get_senders": get_senders,
             "get_projects": get_projects,
             "get_subjects": get_subjects,
+            "get_topics": get_topics,
+            "get_action_items": get_action_items,
+            # Counting - basic
             "count_by_month": count_by_month,
             "count_by_sender": count_by_sender,
             "count_by_project": count_by_project,
+            # Counting - Task E
+            "count_by_email_type": count_by_email_type,
+            "count_by_tone": count_by_tone,
+            "count_by_sentiment": count_by_sentiment,
+            "count_by_topic": count_by_topic,
+            "avg_sentiment": avg_sentiment,
+            # Summaries
             "summarize_message": summarize_message,
             "summarize_messages": summarize_messages,
         }
@@ -413,31 +571,57 @@ class REPLEngine:
         """
         helper_docs = """
 Available helper functions:
-- group_by_month(messages) -> Dict[str, List[Dict]]  # Group by YYYY-MM
-- group_by_sender(messages) -> Dict[str, List[Dict]]  # Group by sender email
-- group_by_project(messages) -> Dict[str, List[Dict]]  # Group by project name
-- filter_by_date_range(messages, start, end) -> List[Dict]  # Filter by YYYY-MM-DD range
-- filter_by_sender(messages, pattern) -> List[Dict]  # Filter by sender (partial match)
-- filter_by_project(messages, pattern) -> List[Dict]  # Filter by project (partial match)
-- filter_by_subject(messages, pattern) -> List[Dict]  # Filter by subject (partial match)
-- filter_by_importance(messages, tier) -> List[Dict]  # Filter by tier (Critical/Execution/Coordination/FYI/Noise)
-- get_senders(messages) -> List[str]  # Get unique senders
-- get_projects(messages) -> List[str]  # Get unique projects
-- get_subjects(messages, limit=10) -> List[str]  # Get subjects (truncated)
-- count_by_month(messages) -> Dict[str, int]  # Count per month
-- count_by_sender(messages) -> Dict[str, int]  # Count per sender
-- count_by_project(messages) -> Dict[str, int]  # Count per project
-- summarize_message(msg) -> Dict  # Summary of single message
-- summarize_messages(messages, limit=10) -> List[Dict]  # Summaries of messages
 
-Each message in corpus is a dict with:
+GROUPING:
+- group_by_month(messages) -> Dict[str, List[Dict]]
+- group_by_sender(messages) -> Dict[str, List[Dict]]
+- group_by_project(messages) -> Dict[str, List[Dict]]
+
+FILTERING (basic):
+- filter_by_date_range(messages, start, end) -> List[Dict]  # YYYY-MM-DD format
+- filter_by_sender(messages, pattern) -> List[Dict]  # partial match
+- filter_by_project(messages, pattern) -> List[Dict]  # partial match
+- filter_by_subject(messages, pattern) -> List[Dict]  # partial match
+- filter_by_importance(messages, tier) -> List[Dict]  # Critical/Execution/Coordination/FYI/Noise
+
+FILTERING (sentiment/type):
+- filter_by_email_type(messages, type) -> List[Dict]  # request/update/decision/question/fyi/meeting/escalation/approval/handoff/social
+- filter_by_tone(messages, tone) -> List[Dict]  # formal/casual/urgent/friendly/terse/diplomatic/frustrated/enthusiastic/neutral
+- filter_by_sentiment(messages, label) -> List[Dict]  # positive/neutral/negative/mixed
+- filter_by_sentiment_range(messages, min_score, max_score) -> List[Dict]  # -1.0 to 1.0
+- filter_by_action_required(messages, required=True) -> List[Dict]
+- filter_by_urgency(messages, urgency) -> List[Dict]  # high/medium/low/none
+- filter_by_topic(messages, pattern) -> List[Dict]  # partial match in key_topics
+
+GETTERS:
+- get_senders(messages) -> List[str]
+- get_projects(messages) -> List[str]
+- get_subjects(messages, limit=10) -> List[str]
+- get_topics(messages) -> List[str]  # unique topics
+- get_action_items(messages, limit=10) -> List[Dict]  # action items sorted by urgency
+
+COUNTING:
+- count_by_month(messages) -> Dict[str, int]
+- count_by_sender(messages) -> Dict[str, int]
+- count_by_project(messages) -> Dict[str, int]
+- count_by_email_type(messages) -> Dict[str, int]
+- count_by_tone(messages) -> Dict[str, int]
+- count_by_sentiment(messages) -> Dict[str, int]
+- count_by_topic(messages) -> Dict[str, int]
+- avg_sentiment(messages) -> float  # average sentiment score
+
+SUMMARIES:
+- summarize_message(msg) -> Dict
+- summarize_messages(messages, limit=10) -> List[Dict]
+
+Each message in corpus has these fields:
 - id, subject, sender_email, sender_name, recipients, cc
 - date (ISO string), date_obj (datetime), month (YYYY-MM)
 - body, body_snippet (first 500 chars)
-- projects (list of strings)
-- stakeholders (list of {name, role, confidence})
-- importance_tier (Critical/Execution/Coordination/FYI/Noise)
-- is_meeting (bool)
+- projects (list), stakeholders (list of {name, role, confidence})
+- importance_tier, is_meeting (bool)
+- summary, email_type, key_topics (list), action_required (bool), urgency
+- tone, sentiment_score (-1.0 to 1.0), sentiment_label, relationship_signals (dict)
 """
 
         prompt = f"""You are a Python programmer. Write ONLY Python code, nothing else.

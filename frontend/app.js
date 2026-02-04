@@ -411,6 +411,8 @@ function updateJobCard(jobType, status) {
         if (jobType === 'parse') {
             document.getElementById('start-enrich-btn').style.display = 'inline-block';
             document.getElementById('enrich-config').style.display = 'block';
+            // Show Data Inspector button (available after parsing)
+            document.getElementById('open-inspector-btn').style.display = 'inline-block';
         } else if (jobType === 'enrich') {
             document.getElementById('start-aggregate-btn').style.display = 'inline-block';
             // Also show RAG embedding generation button
@@ -1863,6 +1865,200 @@ function updateREPLButton() {
         const statusText = enrichStatus.textContent.toLowerCase();
         if (statusText === 'completed' || statusText === 'complete') {
             replBtn.style.display = 'inline-block';
+        }
+    }
+}
+
+// ============================================================================
+// DATA INSPECTOR FUNCTIONS
+// ============================================================================
+
+let inspectorCurrentPage = 1;
+let inspectorSearchTimeout = null;
+
+async function goToInspector() {
+    showPage('inspector-page');
+    await loadInspectorStats();
+    await loadInspectorMessages();
+}
+
+async function loadInspectorStats() {
+    try {
+        const response = await fetch(`${API_BASE}/inspector/stats`);
+        const data = await response.json();
+
+        if (data.success) {
+            document.getElementById('inspector-stat-total').textContent = data.stats.total;
+            document.getElementById('inspector-stat-enriched').textContent = data.stats.enriched;
+            document.getElementById('inspector-stat-pending').textContent = data.stats.pending;
+            document.getElementById('inspector-stat-failed').textContent = data.stats.failed;
+            document.getElementById('inspector-stat-task-e').textContent = data.stats.task_e;
+        }
+    } catch (error) {
+        console.error('Error loading inspector stats:', error);
+    }
+}
+
+async function loadInspectorMessages() {
+    const status = document.getElementById('inspector-filter-status').value;
+    const search = document.getElementById('inspector-search').value;
+    const pageSize = parseInt(document.getElementById('inspector-page-size').value);
+
+    const messagesContainer = document.getElementById('inspector-messages');
+    messagesContainer.innerHTML = '<div style="padding: 30px; text-align: center; color: #9ca3af;">Loading messages...</div>';
+
+    try {
+        const params = new URLSearchParams({
+            status: status,
+            search: search,
+            page: inspectorCurrentPage,
+            page_size: pageSize
+        });
+
+        const response = await fetch(`${API_BASE}/inspector/messages?${params}`);
+        const data = await response.json();
+
+        if (data.success) {
+            if (data.messages.length === 0) {
+                messagesContainer.innerHTML = '<div style="padding: 30px; text-align: center; color: #9ca3af;">No messages found</div>';
+            } else {
+                messagesContainer.innerHTML = data.messages.map(msg => `
+                    <div onclick="selectInspectorMessage(${msg.id})" style="padding: 10px 15px; display: grid; grid-template-columns: 50px 200px 1fr 120px 100px; gap: 10px; border-bottom: 1px solid #e5e7eb; cursor: pointer; font-size: 0.9em; transition: background 0.15s;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='white'">
+                        <span style="color: #64748b;">${msg.id}</span>
+                        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(msg.sender_email)}">${escapeHtml(msg.sender_email || msg.sender_name || '-')}</span>
+                        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(msg.subject)}">${escapeHtml(msg.subject || '(no subject)')}</span>
+                        <span style="color: #64748b;">${msg.date}</span>
+                        <span class="status-badge ${msg.status === 'completed' ? 'success' : msg.status === 'failed' ? 'error' : 'pending'}" style="font-size: 0.8em; padding: 2px 8px;">${msg.status}</span>
+                    </div>
+                `).join('');
+            }
+
+            // Update pagination
+            const pagination = data.pagination;
+            document.getElementById('inspector-page-info').textContent = `Page ${pagination.page} of ${pagination.total_pages}`;
+            document.getElementById('inspector-prev').disabled = pagination.page <= 1;
+            document.getElementById('inspector-next').disabled = pagination.page >= pagination.total_pages;
+        }
+    } catch (error) {
+        console.error('Error loading inspector messages:', error);
+        messagesContainer.innerHTML = '<div style="padding: 30px; text-align: center; color: #ef4444;">Error loading messages</div>';
+    }
+}
+
+function debounceInspectorSearch() {
+    clearTimeout(inspectorSearchTimeout);
+    inspectorSearchTimeout = setTimeout(() => {
+        inspectorCurrentPage = 1;
+        loadInspectorMessages();
+    }, 300);
+}
+
+function inspectorPrevPage() {
+    if (inspectorCurrentPage > 1) {
+        inspectorCurrentPage--;
+        loadInspectorMessages();
+    }
+}
+
+function inspectorNextPage() {
+    inspectorCurrentPage++;
+    loadInspectorMessages();
+}
+
+async function selectInspectorMessage(messageId) {
+    try {
+        const response = await fetch(`${API_BASE}/inspector/message/${messageId}`);
+        const data = await response.json();
+
+        if (data.success) {
+            displayInspectorDetail(data.message, data.extractions);
+        }
+    } catch (error) {
+        console.error('Error loading message detail:', error);
+    }
+}
+
+function displayInspectorDetail(message, extractions) {
+    const detailContainer = document.getElementById('inspector-detail');
+    detailContainer.style.display = 'block';
+
+    // Scroll to detail
+    detailContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    // Display raw message
+    const rawContainer = document.getElementById('inspector-raw-message');
+    rawContainer.innerHTML = `
+        <div style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #e5e7eb;">
+            <p><strong>Subject:</strong> ${escapeHtml(message.subject)}</p>
+            <p><strong>From:</strong> ${escapeHtml(message.sender_name)} &lt;${escapeHtml(message.sender_email)}&gt;</p>
+            <p><strong>To:</strong> ${escapeHtml(message.recipients)}</p>
+            ${message.cc ? `<p><strong>CC:</strong> ${escapeHtml(message.cc)}</p>` : ''}
+            <p><strong>Date:</strong> ${message.date}</p>
+            <p><strong>Status:</strong> <span class="status-badge ${message.enrichment_status === 'completed' ? 'success' : message.enrichment_status === 'failed' ? 'error' : 'pending'}">${message.enrichment_status}</span></p>
+            ${message.is_spurious ? '<p style="color: #dc2626;"><strong>Flagged as spurious</strong></p>' : ''}
+        </div>
+        <div style="background: #f9fafb; padding: 12px; border-radius: 4px; max-height: 400px; overflow-y: auto;">
+            <p style="color: #64748b; font-size: 0.85em; margin-bottom: 8px;">Body (${message.body_length} chars):</p>
+            <pre style="white-space: pre-wrap; word-wrap: break-word; font-family: inherit; margin: 0;">${escapeHtml(message.body_snippet)}</pre>
+        </div>
+    `;
+
+    // Display extractions
+    const extractionsContainer = document.getElementById('inspector-extractions');
+
+    const taskOrder = [
+        'task_e_summary', 'task_e_sentiment',
+        'task_a_projects', 'task_b_stakeholders', 'task_c_importance', 'task_d_meetings'
+    ];
+
+    const taskLabels = {
+        'task_a_projects': '📁 Projects (Task A)',
+        'task_b_stakeholders': '👥 Stakeholders (Task B)',
+        'task_c_importance': '⚡ Importance (Task C)',
+        'task_d_meetings': '📅 Meetings (Task D)',
+        'task_e_summary': '📝 Summary (Task E1)',
+        'task_e_sentiment': '💬 Sentiment (Task E2)'
+    };
+
+    let extractionHtml = '';
+
+    for (const taskName of taskOrder) {
+        const ext = extractions[taskName];
+        if (!ext) continue;
+
+        const label = taskLabels[taskName] || taskName;
+        const isTaskE = taskName.startsWith('task_e');
+
+        extractionHtml += `
+            <div style="margin-bottom: 20px; padding: 12px; background: ${isTaskE ? '#faf5ff' : 'white'}; border: 1px solid ${isTaskE ? '#e9d5ff' : '#e5e7eb'}; border-radius: 6px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <strong style="color: ${isTaskE ? '#7c3aed' : '#374151'};">${label}</strong>
+                    ${ext.confidence ? `<span style="font-size: 0.85em; color: #64748b;">Confidence: ${ext.confidence}</span>` : ''}
+                </div>
+                ${ext.error ? `<p style="color: #dc2626;">${ext.error}</p>` : ''}
+                ${ext.data ? `<pre style="white-space: pre-wrap; word-wrap: break-word; font-size: 0.85em; background: #f9fafb; padding: 10px; border-radius: 4px; margin: 0; max-height: 200px; overflow-y: auto;">${escapeHtml(JSON.stringify(ext.data, null, 2))}</pre>` : '<p style="color: #9ca3af;">No data</p>'}
+                ${ext.processing_time_ms ? `<p style="font-size: 0.8em; color: #9ca3af; margin-top: 8px;">Processing time: ${ext.processing_time_ms}ms</p>` : ''}
+            </div>
+        `;
+    }
+
+    if (!extractionHtml) {
+        extractionHtml = '<p style="color: #9ca3af; text-align: center; padding: 20px;">No extractions found for this message</p>';
+    }
+
+    extractionsContainer.innerHTML = extractionHtml;
+}
+
+// Update pipeline status to show Inspector button when appropriate
+function updateInspectorButton() {
+    // Show Inspector button after parsing is complete
+    const parseStatus = document.getElementById('parse-status');
+    const inspectorBtn = document.getElementById('open-inspector-btn');
+
+    if (parseStatus && inspectorBtn) {
+        const statusText = parseStatus.textContent.toLowerCase();
+        if (statusText === 'completed' || statusText === 'complete') {
+            inspectorBtn.style.display = 'inline-block';
         }
     }
 }

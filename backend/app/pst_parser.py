@@ -252,8 +252,53 @@ class PSTParser:
         try:
             # Basic fields - pypff API (handle both bytes and strings)
             subject = self._to_str(message.subject if hasattr(message, 'subject') else "")
-            sender_email = self._to_str(message.sender_email_address if hasattr(message, 'sender_email_address') else "")
+
+            # Sender extraction - try multiple approaches
+            sender_email = ""
             sender_name = self._to_str(message.sender_name if hasattr(message, 'sender_name') else "")
+
+            # Approach 1: Direct sender_email_address
+            if hasattr(message, 'sender_email_address') and message.sender_email_address:
+                sender_email = self._to_str(message.sender_email_address)
+
+            # Approach 2: If empty or X.500 format, try transport headers
+            if not sender_email or sender_email.startswith('/') or '@' not in sender_email:
+                # Try to get from transport headers (contains From: header)
+                if hasattr(message, 'transport_headers') and message.transport_headers:
+                    headers = self._to_str(message.transport_headers)
+                    # Parse From: header
+                    import re
+                    from_match = re.search(r'From:.*?([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)', headers, re.IGNORECASE)
+                    if from_match:
+                        sender_email = from_match.group(1)
+
+            # Approach 3: Try sender entry id properties (some PST files use this)
+            if not sender_email or '@' not in sender_email:
+                # Try PR_SENDER_SMTP_ADDRESS if available
+                if hasattr(message, 'sender_smtp_address') and message.sender_smtp_address:
+                    smtp_addr = self._to_str(message.sender_smtp_address)
+                    if '@' in smtp_addr:
+                        sender_email = smtp_addr
+
+            # Approach 4: Extract from X.500 DN if that's all we have
+            if sender_email and sender_email.startswith('/') and '@' not in sender_email:
+                # X.500 format like /O=ORG/OU=EXCHANGE/CN=RECIPIENTS/CN=username
+                # Try to extract the CN value as a username
+                import re
+                cn_match = re.search(r'/CN=([^/]+)$', sender_email, re.IGNORECASE)
+                if cn_match:
+                    # Use CN as a pseudo-identifier (not a real email but better than empty)
+                    extracted_cn = cn_match.group(1).lower()
+                    # Don't overwrite - keep as identifier with marker
+                    sender_email = f"{extracted_cn}@x500.local"
+
+            # Log diagnostic for first few messages
+            if not hasattr(self, '_sender_debug_count'):
+                self._sender_debug_count = 0
+            if self._sender_debug_count < 5:
+                raw_sender = self._to_str(message.sender_email_address if hasattr(message, 'sender_email_address') else "NONE")
+                logger.info(f"Sender debug: raw='{raw_sender[:50]}', extracted='{sender_email}', name='{sender_name}'")
+                self._sender_debug_count += 1
 
             # Recipients (comma-separated)
             recipients = []

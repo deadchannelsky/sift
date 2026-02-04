@@ -284,6 +284,23 @@
                         <button id="open-repl-btn" class="btn btn-success" onclick="goToREPL()"
                                 style="display: none; margin-top: 10px; font-weight: 600;">Start REPL Explorer →</button>
                     </div>
+
+                    <!-- Data Inspector Card -->
+                    <div class="job-card" id="inspector-card" style="border: 2px solid #f59e0b; background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);">
+                        <h4 style="color: #92400e;">Data Inspector</h4>
+                        <div class="status-badge" id="inspector-status" style="background: #fde68a; color: #92400e;">Tool</div>
+                        <p style="font-size: 0.85em; color: #b45309; margin-top: 8px;">
+                            <strong>Debug</strong> enrichment quality
+                        </p>
+                        <p id="inspector-info" class="job-info" style="color: #92400e;">
+                            Browse messages and view extraction results side-by-side
+                        </p>
+                        <p style="font-size: 0.8em; color: #d97706; margin-top: 8px; padding: 8px; background: rgba(245, 158, 11, 0.1); border-radius: 4px;">
+                            <strong>Quality Check:</strong> Verify LLM extractions against raw email content
+                        </p>
+                        <button id="open-inspector-btn" class="btn" onclick="goToInspector()"
+                                style="display: none; margin-top: 10px; font-weight: 600; background: #f59e0b; color: white;">Open Inspector →</button>
+                    </div>
                 </div>
 
                 <!-- Navigation Buttons -->
@@ -758,6 +775,129 @@
                     <button class="btn btn-secondary" onclick="goToPipeline()">← Back to Pipeline</button>
                     <button class="btn btn-primary" onclick="goToRAGChat()">Compare with RAG Chat →</button>
                     <button class="btn btn-outline-danger" onclick="clearREPLSession()">Clear Session</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ========== PAGE 6: DATA INSPECTOR ========== -->
+        <section id="inspector-page" class="page">
+            <div class="page-content">
+                <h2>Data Inspector - Enrichment Quality Review</h2>
+                <p class="help-text">Browse individual messages and their LLM extractions to verify data quality.</p>
+
+                <!-- Filter Controls -->
+                <div style="background: white; border: 1px solid #ddd; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 15px; align-items: end;">
+                        <div>
+                            <label style="font-weight: 600; font-size: 0.9em; color: #374151; display: block; margin-bottom: 5px;">Filter by Status</label>
+                            <select id="inspector-filter-status" onchange="loadInspectorMessages()" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                <option value="all">All Messages</option>
+                                <option value="completed">Enriched (completed)</option>
+                                <option value="pending">Pending</option>
+                                <option value="failed">Failed</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label style="font-weight: 600; font-size: 0.9em; color: #374151; display: block; margin-bottom: 5px;">Search Subject/Sender</label>
+                            <input type="text" id="inspector-search" placeholder="Type to search..."
+                                   onkeyup="debounceInspectorSearch()" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                        </div>
+                        <div>
+                            <label style="font-weight: 600; font-size: 0.9em; color: #374151; display: block; margin-bottom: 5px;">Page Size</label>
+                            <select id="inspector-page-size" onchange="loadInspectorMessages()" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                <option value="10">10 messages</option>
+                                <option value="25" selected>25 messages</option>
+                                <option value="50">50 messages</option>
+                                <option value="100">100 messages</option>
+                            </select>
+                        </div>
+                        <div>
+                            <button class="btn btn-secondary" onclick="loadInspectorMessages()" style="padding: 8px 16px;">
+                                Refresh
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Stats Summary -->
+                <div id="inspector-stats" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 20px;">
+                    <div style="background: #f0f9ff; padding: 15px; border-radius: 8px; text-align: center;">
+                        <p style="margin: 0; color: #64748b; font-size: 0.85em;">Total</p>
+                        <p id="inspector-stat-total" style="margin: 5px 0 0 0; font-size: 1.5em; font-weight: 700; color: #0284c7;">-</p>
+                    </div>
+                    <div style="background: #f0fdf4; padding: 15px; border-radius: 8px; text-align: center;">
+                        <p style="margin: 0; color: #64748b; font-size: 0.85em;">Enriched</p>
+                        <p id="inspector-stat-enriched" style="margin: 5px 0 0 0; font-size: 1.5em; font-weight: 700; color: #16a34a;">-</p>
+                    </div>
+                    <div style="background: #fef3c7; padding: 15px; border-radius: 8px; text-align: center;">
+                        <p style="margin: 0; color: #64748b; font-size: 0.85em;">Pending</p>
+                        <p id="inspector-stat-pending" style="margin: 5px 0 0 0; font-size: 1.5em; font-weight: 700; color: #d97706;">-</p>
+                    </div>
+                    <div style="background: #fef2f2; padding: 15px; border-radius: 8px; text-align: center;">
+                        <p style="margin: 0; color: #64748b; font-size: 0.85em;">Failed</p>
+                        <p id="inspector-stat-failed" style="margin: 5px 0 0 0; font-size: 1.5em; font-weight: 700; color: #dc2626;">-</p>
+                    </div>
+                    <div style="background: #faf5ff; padding: 15px; border-radius: 8px; text-align: center;">
+                        <p style="margin: 0; color: #64748b; font-size: 0.85em;">Task E</p>
+                        <p id="inspector-stat-task-e" style="margin: 5px 0 0 0; font-size: 1.5em; font-weight: 700; color: #7c3aed;">-</p>
+                    </div>
+                </div>
+
+                <!-- Message List -->
+                <div id="inspector-message-list" style="background: white; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; margin-bottom: 20px;">
+                    <div style="background: #f1f5f9; padding: 10px 15px; display: grid; grid-template-columns: 50px 200px 1fr 120px 100px; gap: 10px; font-weight: 600; color: #475569; font-size: 0.85em;">
+                        <span>ID</span>
+                        <span>Sender</span>
+                        <span>Subject</span>
+                        <span>Date</span>
+                        <span>Status</span>
+                    </div>
+                    <div id="inspector-messages" style="max-height: 400px; overflow-y: auto;">
+                        <div style="padding: 30px; text-align: center; color: #9ca3af;">Loading messages...</div>
+                    </div>
+                </div>
+
+                <!-- Pagination -->
+                <div id="inspector-pagination" style="display: flex; justify-content: center; gap: 10px; margin-bottom: 20px;">
+                    <button id="inspector-prev" class="btn btn-secondary btn-small" onclick="inspectorPrevPage()" disabled>← Previous</button>
+                    <span id="inspector-page-info" style="padding: 8px 15px; color: #64748b;">Page 1</span>
+                    <button id="inspector-next" class="btn btn-secondary btn-small" onclick="inspectorNextPage()">Next →</button>
+                </div>
+
+                <!-- Selected Message Detail -->
+                <div id="inspector-detail" style="display: none; background: white; border: 2px solid #f59e0b; border-radius: 8px; overflow: hidden; margin-bottom: 20px;">
+                    <div style="background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); padding: 15px 20px; border-bottom: 2px solid #f59e0b;">
+                        <h3 style="margin: 0; color: #92400e;">Message Details</h3>
+                    </div>
+
+                    <!-- Two-column layout -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0;">
+                        <!-- Left: Raw Message -->
+                        <div style="padding: 20px; border-right: 1px solid #e5e7eb;">
+                            <h4 style="margin: 0 0 15px 0; color: #374151; display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 1.2em;">📧</span> Raw Email
+                            </h4>
+                            <div id="inspector-raw-message" style="font-size: 0.9em; line-height: 1.6;">
+                                <!-- Raw message will be populated here -->
+                            </div>
+                        </div>
+
+                        <!-- Right: Extractions -->
+                        <div style="padding: 20px; background: #fafafa;">
+                            <h4 style="margin: 0 0 15px 0; color: #374151; display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 1.2em;">🔍</span> LLM Extractions
+                            </h4>
+                            <div id="inspector-extractions" style="font-size: 0.9em;">
+                                <!-- Extractions will be populated here -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Navigation -->
+                <div class="button-group">
+                    <button class="btn btn-secondary" onclick="goToPipeline()">← Back to Pipeline</button>
+                    <button class="btn btn-primary" onclick="goToResults()">View Results →</button>
                 </div>
             </div>
         </section>
