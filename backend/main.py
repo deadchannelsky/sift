@@ -1363,8 +1363,12 @@ async def generate_embeddings(background_tasks: BackgroundTasks):
 
         return {"job_id": job_id, "status": "queued"}
 
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error starting embedding generation: {e}")
+        import traceback
+        error_details = traceback.format_exc()
+        logger.error(f"Error starting embedding generation: {e}\n{error_details}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
