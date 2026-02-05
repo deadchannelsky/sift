@@ -7,6 +7,7 @@
   "ollama": {
     "url": "http://localhost:11434",
     "model": "hf.co/ibm-granite/granite-4.0-h-tiny-GGUF:Q8_0",
+    "embedding_model": "hf.co/bartowski/granite-embedding-125m-english-GGUF:Q5_K_M",
     "timeout_seconds": 30,
     "max_retries": 3,
     "retry_backoff_ms": 500

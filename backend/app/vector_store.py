@@ -27,12 +27,13 @@ class NoOpEmbeddingFunction:
 class VectorStore:
     """ChromaDB-backed vector store for semantic search over enriched messages"""
 
-    def __init__(self, ollama_url: str, persist_dir: str = "./data/chroma"):
+    def __init__(self, ollama_url: str, persist_dir: str = "./data/chroma", embedding_model: Optional[str] = None):
         """Initialize vector store with ChromaDB
 
         Args:
             ollama_url: Ollama API endpoint (e.g., "http://localhost:11434")
             persist_dir: Directory for ChromaDB persistence
+            embedding_model: Ollama embedding model (defaults to granite-embedding-125m)
         """
         try:
             import chromadb
@@ -41,7 +42,7 @@ class VectorStore:
             raise ImportError("chromadb not installed. Run: pip install chromadb==0.3.21")
 
         self.ollama_url = ollama_url
-        self.embedding_model = "hf.co/bartowski/granite-embedding-125m-english-GGUF:F16"
+        self.embedding_model = embedding_model or "hf.co/bartowski/granite-embedding-125m-english-GGUF:Q5_K_M"
 
         # Initialize ChromaDB with persistent storage (0.3.21 API)
         config = cc.Settings(

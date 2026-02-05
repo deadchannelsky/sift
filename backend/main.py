@@ -1321,7 +1321,8 @@ async def generate_embeddings(background_tasks: BackgroundTasks):
 
         # Validate embedding model is available before starting job
         try:
-            test_store = VectorStore(ollama_url=ollama_client.url)
+            embedding_model = config.get("ollama", {}).get("embedding_model")
+            test_store = VectorStore(ollama_url=ollama_client.url, embedding_model=embedding_model)
 
             # Test Ollama connection and model availability
             response = req.get(f"{ollama_client.url}/api/tags", timeout=5)
@@ -1461,7 +1462,8 @@ async def query_rag(session_id: str, request: dict):
         # Initialize RAG components
         try:
             from app.vector_store import VectorStore
-            vector_store = VectorStore(ollama_client.url)
+            embedding_model = config.get("ollama", {}).get("embedding_model")
+            vector_store = VectorStore(ollama_client.url, embedding_model=embedding_model)
         except ImportError as e:
             raise HTTPException(
                 status_code=503,
@@ -2308,7 +2310,8 @@ def _generate_embeddings_task(job_id: str):
         session.commit()
 
         # Initialize vector store
-        vector_store = VectorStore(ollama_client.url)
+        embedding_model = config.get("ollama", {}).get("embedding_model")
+        vector_store = VectorStore(ollama_client.url, embedding_model=embedding_model)
         logger.info(f"Vector store initialized at {vector_store.collection.count()} embeddings")
 
         # Get all enriched messages
