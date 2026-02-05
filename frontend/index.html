@@ -152,13 +152,20 @@
 
                 <!-- Upload Button -->
                 <div class="button-group">
-                    <button id="upload-btn" class="btn btn-primary" onclick="startUpload()" style="display: none;">
-                        Upload & Parse
+                    <button id="upload-pst-btn" class="btn btn-primary" onclick="uploadPSTFile()" style="display: none;">
+                        Upload PST File
+                    </button>
+                    <button id="parse-selected-btn" class="btn btn-success" onclick="parseSelectedFile()" style="display: none;">
+                        Parse Selected File
                     </button>
                 </div>
 
-                <!-- Error Message -->
+                <!-- Success Message -->
+                <div id="upload-success" class="alert alert-success" style="display: none;"></div>
+
+                <!-- Error Messages -->
                 <div id="upload-error" class="alert alert-danger" style="display: none;"></div>
+                <div id="parse-error" class="alert alert-danger" style="display: none;"></div>
             </div>
         </section>
 

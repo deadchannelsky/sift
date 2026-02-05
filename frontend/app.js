@@ -101,14 +101,18 @@ function handleFileSelect(e) {
     }
 }
 
-function displayFileInfo(file) {
+function displayFileInfo(file, size) {
     const fileInfo = document.getElementById('file-info');
     const fileName = document.getElementById('file-name');
     const fileSize = document.getElementById('file-size');
 
-    fileName.textContent = file.name;
+    // Handle both direct file objects and string filenames
+    const name = typeof file === 'string' ? file : file.name;
+    const fileObj = typeof file === 'string' ? { name: file, size: size || 0, isExisting: true } : file;
+
+    fileName.textContent = name;
     // Handle existing files that don't have size info
-    fileSize.textContent = file.isExisting ? '(existing file)' : formatBytes(file.size);
+    fileSize.textContent = fileObj.isExisting ? '(existing file)' : formatBytes(fileObj.size || 0);
 
     fileInfo.style.display = 'flex';
     document.getElementById('upload-zone').style.display = 'none';
@@ -121,46 +125,105 @@ function clearFile() {
     document.getElementById('file-info').style.display = 'none';
     document.getElementById('upload-zone').style.display = 'block';
     document.getElementById('config-section').style.display = 'none';
-    document.getElementById('upload-btn').style.display = 'none';
-    document.getElementById('upload-btn').textContent = 'Upload & Parse';  // Reset button text
+    document.getElementById('upload-pst-btn').style.display = 'none';
+    document.getElementById('parse-selected-btn').style.display = 'none';
 }
 
 function showUploadButton() {
-    document.getElementById('upload-btn').style.display = 'inline-block';
+    const uploadBtn = document.getElementById('upload-pst-btn');
+    const parseBtn = document.getElementById('parse-selected-btn');
+
+    if (selectedFile && selectedFile.isExisting) {
+        // Existing file: Hide upload, show parse button
+        uploadBtn.style.display = 'none';
+        parseBtn.style.display = 'inline-block';
+        parseBtn.disabled = false;
+    } else if (selectedFile) {
+        // New file: Show upload, hide parse button
+        uploadBtn.style.display = 'inline-block';
+        uploadBtn.disabled = false;
+        parseBtn.style.display = 'none';
+    } else {
+        // No file: Hide both
+        uploadBtn.style.display = 'none';
+        parseBtn.style.display = 'none';
+    }
 }
 
-async function startUpload() {
+// New function: Upload only
+async function uploadPSTFile() {
     if (!selectedFile) {
         showError('upload-error', 'No file selected');
         return;
     }
 
     const file = selectedFile;
-
-    const uploadBtn = document.getElementById('upload-btn');
+    const uploadBtn = document.getElementById('upload-pst-btn');
     const uploadProgress = document.getElementById('upload-progress');
     const uploadError = document.getElementById('upload-error');
+    const uploadSuccess = document.getElementById('upload-success');
+    const parseError = document.getElementById('parse-error');
+
+    // Check if file is already uploaded (existing file)
+    if (file.isExisting) {
+        showError('upload-error', 'File already exists. Use "Parse Selected File" button.');
+        return;
+    }
+
+    // Clear all error/success messages
+    uploadError.style.display = 'none';
+    parseError.style.display = 'none';
+    uploadSuccess.style.display = 'none';
 
     uploadBtn.disabled = true;
-    uploadError.style.display = 'none';
     uploadProgress.style.display = 'block';
 
     try {
-        let filename;
+        const uploadResult = await uploadFile(file);
+        console.log('Upload complete:', uploadResult.filename);
 
-        // Check if this is an existing file or a new upload
-        if (file.isExisting) {
-            // Existing file - skip upload
-            filename = file.name;
-            document.getElementById('upload-percent').textContent = '100%';
-            updateProgressBar('upload-bar', 100);
-        } else {
-            // New file - upload it
-            const uploadResult = await uploadFile(file);
-            filename = uploadResult.filename;
-        }
+        // Refresh existing files list
+        await loadPSTFiles();
 
-        // Start parsing
+        // Auto-select the newly uploaded file
+        selectExistingFile(uploadResult.filename);
+
+        // Show success message
+        showSuccess('upload-success', `File "${uploadResult.filename}" uploaded successfully. Ready to parse.`);
+
+        // Reset upload UI
+        uploadProgress.style.display = 'none';
+        uploadBtn.disabled = false;
+
+    } catch (error) {
+        showError('upload-error', error.message);
+        uploadBtn.disabled = false;
+        uploadProgress.style.display = 'none';
+    }
+}
+
+// New function: Parse selected file only
+async function parseSelectedFile() {
+    if (!selectedFile) {
+        showError('parse-error', 'No file selected');
+        return;
+    }
+
+    const filename = selectedFile.name;
+    const parseBtn = document.getElementById('parse-selected-btn');
+    const parseError = document.getElementById('parse-error');
+    const uploadError = document.getElementById('upload-error');
+    const uploadSuccess = document.getElementById('upload-success');
+
+    // Clear all error/success messages
+    uploadError.style.display = 'none';
+    parseError.style.display = 'none';
+    uploadSuccess.style.display = 'none';
+
+    parseBtn.disabled = true;
+
+    try {
+        // Get parsing parameters
         const dateStart = document.getElementById('date-start').value;
         const dateEnd = document.getElementById('date-end').value;
         const minMessages = parseInt(document.getElementById('min-messages').value);
@@ -170,6 +233,7 @@ async function startUpload() {
         const clearDatabase = document.getElementById('clear-database').checked;
         const relevanceThreshold = parseInt(document.getElementById('relevance-threshold').value) / 100;
 
+        // Start parsing job
         const parseResult = await apiCall('POST', '/parse', {
             pst_filename: filename,
             date_start: dateStart,
@@ -185,8 +249,8 @@ async function startUpload() {
         startPolling('parse');
 
     } catch (error) {
-        showError('upload-error', error.message);
-        uploadBtn.disabled = false;
+        showError('parse-error', error.message);
+        parseBtn.disabled = false;
     }
 }
 
@@ -736,10 +800,12 @@ function resetUploadPage() {
     document.getElementById('file-info').style.display = 'none';
     document.getElementById('upload-zone').style.display = 'block';
     document.getElementById('config-section').style.display = 'none';
-    document.getElementById('upload-btn').style.display = 'none';
-    document.getElementById('upload-btn').textContent = 'Upload & Parse';  // Reset button text
+    document.getElementById('upload-pst-btn').style.display = 'none';
+    document.getElementById('parse-selected-btn').style.display = 'none';
     document.getElementById('upload-progress').style.display = 'none';
     document.getElementById('upload-error').style.display = 'none';
+    document.getElementById('parse-error').style.display = 'none';
+    document.getElementById('upload-success').style.display = 'none';
     document.getElementById('upload-bar').style.width = '0%';
     document.getElementById('upload-percent').textContent = '0%';
 
@@ -845,7 +911,8 @@ function toggleResumeOptions() {
     const uploadZone = document.getElementById('upload-zone');
     const existingFiles = document.getElementById('existing-files-section');
     const configSection = document.getElementById('config-section');
-    const uploadBtn = document.getElementById('upload-btn');
+    const uploadBtn = document.getElementById('upload-pst-btn');
+    const parseBtn = document.getElementById('parse-selected-btn');
 
     if (resumeSection.style.display === 'none') {
         // Show resume, hide confirmation and upload
@@ -855,6 +922,7 @@ function toggleResumeOptions() {
         existingFiles.style.display = 'none';
         configSection.style.display = 'none';
         uploadBtn.style.display = 'none';
+        parseBtn.style.display = 'none';
     } else {
         // Show upload, hide resume and confirmation
         resumeSection.style.display = 'none';
@@ -862,7 +930,6 @@ function toggleResumeOptions() {
         uploadZone.style.display = 'block';
         existingFiles.style.display = existingFiles.innerHTML ? 'block' : 'none';
         configSection.style.display = 'block';
-        uploadBtn.style.display = 'inline-block';
         clearFile(); // Reset upload form
     }
 }
@@ -899,19 +966,39 @@ function resumePipeline(stage) {
 }
 
 function selectExistingFile(filename) {
-    // Create synthetic file object for existing file
+    // Get file stats from the table
+    const row = document.querySelector(`#existing-files-list button[onclick*="selectExistingFile('${filename}')"]`)?.closest('.file-item');
+    const sizeText = row?.querySelector('.file-item-meta')?.textContent?.split('•')[0]?.trim() || '0 MB';
+
+    // Create synthetic file object
     selectedFile = {
         name: filename,
-        size: 0,  // Size unknown (already on server)
+        size: parseSizeToBytes(sizeText),
         isExisting: true
     };
 
-    // Display file info and show config section
+    // Display file info
     displayFileInfo(selectedFile);
 
-    // Show parse button with updated text
-    document.getElementById('upload-btn').textContent = 'Parse Selected File';
-    document.getElementById('upload-btn').style.display = 'inline-block';
+    // Show parse button (not upload button)
+    showUploadButton();
+
+    console.log('Selected existing file:', filename);
+}
+
+function parseSizeToBytes(sizeText) {
+    const match = sizeText.match(/(\d+(?:\.\d+)?)\s*(MB|GB|KB|bytes)/i);
+    if (!match) return 0;
+
+    const value = parseFloat(match[1]);
+    const unit = match[2].toUpperCase();
+
+    switch(unit) {
+        case 'GB': return value * 1024 * 1024 * 1024;
+        case 'MB': return value * 1024 * 1024;
+        case 'KB': return value * 1024;
+        default: return value;
+    }
 }
 
 async function parseSelectedFile(filename) {
@@ -1198,6 +1285,19 @@ function showError(elementId, message) {
     if (element) {
         element.textContent = message;
         element.style.display = 'block';
+    }
+}
+
+function showSuccess(elementId, message) {
+    const element = document.getElementById(elementId);
+    if (element) {
+        element.textContent = message;
+        element.style.display = 'block';
+
+        // Auto-hide after 5 seconds
+        setTimeout(() => {
+            element.style.display = 'none';
+        }, 5000);
     }
 }
 
