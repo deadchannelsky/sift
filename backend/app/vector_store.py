@@ -72,14 +72,23 @@ class VectorStore:
         """
         try:
             response = requests.post(
-                f"{self.ollama_url}/api/embeddings",
-                json={"model": self.embedding_model, "prompt": text},
+                f"{self.ollama_url}/api/embed",
+                json={"model": self.embedding_model, "input": text},
                 timeout=30
             )
             response.raise_for_status()
-            return response.json()["embedding"]
+            data = response.json()
+
+            # Ollama /api/embed returns {"embeddings": [[...]]} for batch or {"embedding": [...]} for single
+            if "embedding" in data:
+                return data["embedding"]
+            elif "embeddings" in data and len(data["embeddings"]) > 0:
+                return data["embeddings"][0]
+            else:
+                raise ValueError(f"Unexpected response format: {data.keys()}")
+
         except Exception as e:
-            logger.error(f"Error generating embedding: {e}")
+            logger.error(f"Error generating embedding with model '{self.embedding_model}': {e}")
             raise
 
     def index_message(
