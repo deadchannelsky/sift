@@ -1982,7 +1982,12 @@ async function loadInspectorMessages() {
             page_size: pageSize
         });
 
-        const response = await fetch(`${API_BASE}/inspector/messages?${params}`);
+        const response = await fetch(`${API_BASE}inspector/messages?${params}`);
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
         const data = await response.json();
 
         if (data.success) {
@@ -2005,10 +2010,12 @@ async function loadInspectorMessages() {
             document.getElementById('inspector-page-info').textContent = `Page ${pagination.page} of ${pagination.total_pages}`;
             document.getElementById('inspector-prev').disabled = pagination.page <= 1;
             document.getElementById('inspector-next').disabled = pagination.page >= pagination.total_pages;
+        } else {
+            throw new Error(data.error || 'Unknown error from server');
         }
     } catch (error) {
         console.error('Error loading inspector messages:', error);
-        messagesContainer.innerHTML = '<div style="padding: 30px; text-align: center; color: #ef4444;">Error loading messages</div>';
+        messagesContainer.innerHTML = `<div style="padding: 30px; text-align: center; color: #ef4444;">Error loading messages: ${error.message}</div>`;
     }
 }
 
