@@ -891,7 +891,8 @@ async function checkPipelineResume() {
                 document.getElementById('upload-zone').style.display = 'none';
                 document.getElementById('existing-files-section').style.display = 'none';
                 document.getElementById('config-section').style.display = 'none';
-                document.getElementById('upload-btn').style.display = 'none';
+                document.getElementById('upload-pst-btn').style.display = 'none';
+                document.getElementById('parse-selected-btn').style.display = 'none';
 
                 // Show warning about enrichment loss if they choose fresh start
                 if (stats && stats.completed_enrichment > 0) {
@@ -941,11 +942,18 @@ function resumePipeline(stage) {
         console.log('Resuming at enrichment stage...');
         currentJobIds.parse = 'resume-mode';
         goToPipeline();
+
+        // Show Data Inspector (parsing is complete)
+        document.getElementById('open-inspector-btn').style.display = 'inline-block';
+
         startEnrichment();
     } else if (stage === 'aggregate') {
         // Start aggregation directly - but first show RAG and REPL buttons since enrichment is complete
         console.log('Resuming at aggregation stage...');
         goToPipeline();
+
+        // Show Data Inspector (parsing is complete)
+        document.getElementById('open-inspector-btn').style.display = 'inline-block';
 
         // Show aggregate, RAG, and REPL buttons (enrichment already done)
         document.getElementById('start-aggregate-btn').style.display = 'inline-block';
