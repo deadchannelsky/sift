@@ -1959,7 +1959,7 @@ async function goToInspector() {
 
 async function loadInspectorStats() {
     try {
-        const response = await fetch(`${API_BASE}/inspector/stats`);
+        const response = await fetch(`${API_BASE}inspector/stats`);
         const data = await response.json();
 
         if (data.success) {
@@ -2049,7 +2049,7 @@ function inspectorNextPage() {
 
 async function selectInspectorMessage(messageId) {
     try {
-        const response = await fetch(`${API_BASE}/inspector/message/${messageId}`);
+        const response = await fetch(`${API_BASE}inspector/message/${messageId}`);
         const data = await response.json();
 
         if (data.success) {
