@@ -1001,39 +1001,6 @@ function parseSizeToBytes(sizeText) {
     }
 }
 
-async function parseSelectedFile(filename) {
-    // Get configuration from form
-    const dateStart = document.getElementById('date-start').value;
-    const dateEnd = document.getElementById('date-end').value;
-    const minMessages = parseInt(document.getElementById('min-messages').value);
-    const maxMessages = document.getElementById('max-messages').value
-        ? parseInt(document.getElementById('max-messages').value)
-        : null;
-
-    try {
-        // Start parsing
-        const clearDatabase = document.getElementById('clear-database').checked;
-        const relevanceThreshold = parseInt(document.getElementById('relevance-threshold').value) / 100;
-
-        const parseResult = await apiCall('POST', '/parse', {
-            pst_filename: filename,
-            date_start: dateStart,
-            date_end: dateEnd,
-            min_conversation_messages: minMessages,
-            max_messages: maxMessages,
-            clear_database: clearDatabase,
-            relevance_threshold: relevanceThreshold
-        });
-
-        currentJobIds.parse = parseResult.job_id;
-        goToPipeline();
-        startPolling('parse');
-
-    } catch (error) {
-        showError('upload-error', `Failed to parse: ${error.message}`);
-    }
-}
-
 // ============================================================================
 // AGGREGATION SETTINGS FUNCTIONS
 // ============================================================================
